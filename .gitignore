@@ -1,0 +1,81 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# --- venv ---
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# --- env ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# --- crypto ---
+*.privkey
+*.pubkey
+keys/
+secrets/
+*.db-key
+
+# --- db ---
+*.sqlite3
+*.db
+/postgres_data/
+
+# --- FastAPI / Uvicorn ---
+*.log
+logs/
+
+# --- tests ---
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.mypy_cache/
+.ruff_cache/
+
+# --- IDE ---
+.vscode/
+.idea/
+*.swp
+*.swo
+ruff.toml
+.zed
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- Docker ---
+*.env.docker
+docker-compose.override.yml
+
+# --- Node ---
+node_modules/
+dist/
+.parcel-cache/
