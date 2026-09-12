@@ -67,6 +67,11 @@ class ChatRepository:
         await self.session.refresh(chat, attribute_names=["owner", "members"])
         return chat
 
+    async def delete(self, chat: ChatModel) -> None:
+        await self.session.delete(chat)
+        await self.session.flush()
+        await self.session.commit()
+
     async def create_message(self, message: MessageRequestSchema, user: UserModel) -> MessageModel:
         chat = await self.get(message.data.chat_id)
         date = datetime.today()

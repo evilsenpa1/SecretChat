@@ -1,8 +1,6 @@
 from fastapi import APIRouter, Depends, Response, status
 from fastapi.exceptions import HTTPException
 
-from users.auth import auth
-
 from .exceptions import UserIntegrityError, UserNotFoundError, UserPermissionError
 from .schemas import LoginRequestSchema, UserResponseSchema
 from .services import UserService, get_user_service
@@ -37,8 +35,3 @@ async def login(
     except (UserNotFoundError, UserPermissionError):
         raise HTTPException(401, detail="Invalid credentials") from None
     return {"status": "Ok"}
-
-
-@router.get("/protected", dependencies=[Depends(auth.access_token_required)])
-async def protected():
-    return {"message": "Hello World"}

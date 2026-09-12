@@ -27,6 +27,9 @@ class ChatModel(Base):
     members: Mapped[list["UserModel"]] = relationship(
         secondary=chat_user_association_table, back_populates="chats", lazy="selectin"
     )
+    messages: Mapped[list["MessageModel"]] = relationship(
+        "MessageModel", back_populates="chat", cascade="all, delete-orphan"
+    )
 
 
 class MessageModel(Base):
@@ -37,5 +40,7 @@ class MessageModel(Base):
     owner_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     owner: Mapped["UserModel"] = relationship("UserModel", foreign_keys=[owner_id])
     chat_id: Mapped[int] = mapped_column(ForeignKey("chats.id"))
-    chat: Mapped[ChatModel] = relationship(ChatModel, foreign_keys=[chat_id])
+    chat: Mapped[ChatModel] = relationship(
+        ChatModel, foreign_keys=[chat_id], back_populates="messages"
+    )
     created_at: Mapped[datetime] = mapped_column()

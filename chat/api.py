@@ -104,3 +104,22 @@ async def get_many(
 
     chat = await chat_service.get_many(user_id)
     return chat
+
+
+@router.delete("/chat/{chat_id}")
+async def delete(
+    chat_id: int,
+    user_id: int = Depends(get_current_user_id),
+    chat_service: ChatService = Depends(get_chat_service),
+):
+    try:
+        await chat_service.delete(chat_id=chat_id, user_id=user_id)
+    except ChatNotFoundError as err:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat not found") from err
+    except UserNotFoundError as err:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found") from err
+    except ChatPermissionError as err:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied"
+        ) from err
+    return {"status": "Ok"}

@@ -40,6 +40,14 @@ class ChatService:
 
         return await self.repo.patch(data=data, chat=chat)
 
+    async def delete(self, chat_id: int, user_id: int):
+        user = await self.user_service.get(user_id)
+        chat = await self.get(chat_id)
+        if user.id != chat.owner.id:
+            raise ChatPermissionError
+
+        return await self.repo.delete(chat)
+
     async def create_message(self, message: MessageRequestSchema, user: UserModel) -> MessageModel:
         return await self.repo.create_message(message, user)
 
