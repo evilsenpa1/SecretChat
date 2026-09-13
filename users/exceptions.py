@@ -2,12 +2,12 @@ from core.shared import exceptions
 
 
 class UserNotFoundError(exceptions.NotFoundError):
-    pass
+    default_message = "User not found!"
 
 
-class UserPermissionError(exceptions.PermissionError):
-    pass
+class UserPermissionError(exceptions.AppPermissionError):
+    default_message = "User permission error!"
 
 
 class UserIntegrityError(exceptions.IntegrityError):
-    pass
+    default_message = "User integrity error!"

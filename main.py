@@ -4,6 +4,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from chat.api import router as chat
 from core.db.router import router as db
+from core.exception_handlers import domain_error_handler
+from core.shared.exceptions import AppError
 from users.api import router as user
 
 app = FastAPI()
@@ -15,6 +17,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.add_exception_handler(AppError, domain_error_handler)
 
 app.include_router(db)
 app.include_router(user)
