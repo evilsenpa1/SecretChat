@@ -1,3 +1,5 @@
+import logging.config
+
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -5,10 +7,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from chat.api import router as chat
 from core.db.router import router as db
 from core.exception_handlers import domain_error_handler
+from core.logging_config import LOGGING
+# from core.middlewares import RequestLoggerMiddleware
 from core.shared.exceptions import AppError
 from users.api import router as user
 
+logging.config.dictConfig(LOGGING)
+
 app = FastAPI()
+
+
+# app.add_middleware(RequestLoggerMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
