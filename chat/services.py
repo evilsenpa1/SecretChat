@@ -48,14 +48,15 @@ class ChatService:
 
         return await self.repo.delete(chat)
 
-    async def create_message(self, message: MessageRequestSchema, user: UserModel) -> MessageModel:
+    async def create_message(
+        self, message: MessageRequestSchema, user: UserModel
+    ) -> MessageModel:
         return await self.repo.create_message(message, user)
 
 
 class ConnectionManager:
-    def __init__(self, chat_service: ChatService) -> None:
+    def __init__(self) -> None:
         self.active_connections: dict[int, WebSocket] = {}
-        self.chat_service = chat_service
 
     async def connect(
         self,
@@ -74,9 +75,11 @@ class ConnectionManager:
         user_conn = self.active_connections[user.id]
         await user_conn.send_text(message)
 
-    async def broadcast(self, message: MessageRequestSchema, user: UserModel):
+    async def broadcast(
+        self, message: MessageRequestSchema, user: UserModel, chat_service: ChatService
+    ):
         client_msg_id = message.data.client_msg_id
-        result = await self.chat_service.create_message(message, user)
+        result = await chat_service.create_message(message, user)
         result = {
             "type": MessageType.message,
             "data": {**vars(result), "client_msg_id": client_msg_id},
@@ -94,7 +97,5 @@ def get_chat_service(
 
 
 @lru_cache
-def get_connection_manager(
-    chat_service: ChatService = Depends(get_chat_service),
-) -> ConnectionManager:
-    return ConnectionManager(chat_service)
+def get_connection_manager() -> ConnectionManager:
+    return ConnectionManager()

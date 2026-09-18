@@ -1,7 +1,13 @@
 from json.decoder import JSONDecodeError
 
 from authx import RequestToken, TokenPayload
-from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, WebSocketException
+from fastapi import (
+    APIRouter,
+    Depends,
+    WebSocket,
+    WebSocketDisconnect,
+    WebSocketException,
+)
 
 from core.dependencies import get_current_user_id
 from users.auth import auth
@@ -9,7 +15,12 @@ from users.exceptions import UserNotFoundError
 from users.services import UserService, get_user_service
 
 from .schemas import ChatCreateSchema, ChatPatchSchema, ChatSchema, MessageRequestSchema
-from .services import ChatService, ConnectionManager, get_chat_service, get_connection_manager
+from .services import (
+    ChatService,
+    ConnectionManager,
+    get_chat_service,
+    get_connection_manager,
+)
 
 router = APIRouter()
 
@@ -31,6 +42,7 @@ async def websocket_endpoint(
     payload: TokenPayload = Depends(_socket_access_token_required),
     manager: ConnectionManager = Depends(get_connection_manager),
     user_service: UserService = Depends(get_user_service),
+    chat_service: ChatService = Depends(get_chat_service),
 ):
     try:
         user = await user_service.get(payload.user_id)
@@ -44,10 +56,11 @@ async def websocket_endpoint(
             try:
                 inpt = await websocket.receive_json()
                 inpt = MessageRequestSchema(**inpt)
-                await manager.broadcast(inpt, user)
+                await manager.broadcast(inpt, user, chat_service)
             except JSONDecodeError:
                 await manager.send_personal_message(
-                    "Message was not delivered, this type of data is unsupported", user=user
+                    "Message was not delivered, this type of data is unsupported",
+                    user=user,
                 )
     except WebSocketDisconnect:
         manager.disconnect(user_id=user.id)
