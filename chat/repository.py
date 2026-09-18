@@ -81,6 +81,13 @@ class ChatRepository:
         await self.session.refresh(result, attribute_names=["owner"])
         return result
 
+    async def get_messages(self, chat_id) -> list[MessageModel]:
+        messages = select(MessageModel).where(MessageModel.chat_id == chat_id)
+
+        messages = await self.session.execute(messages)
+
+        return list(messages.scalars().all())
+
 
 def get_chat_repository(
     session: AsyncSession = Depends(get_session),

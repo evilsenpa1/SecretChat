@@ -14,7 +14,7 @@ from users.auth import auth
 from users.exceptions import UserNotFoundError
 from users.services import UserService, get_user_service
 
-from .schemas import ChatCreateSchema, ChatPatchSchema, ChatSchema, MessageRequestSchema
+from .schemas import ChatCreateSchema, ChatPatchSchema, ChatSchema, MessageHistoryDataSchema, MessageRequestSchema, MessageResponseSchema
 from .services import (
     ChatService,
     ConnectionManager,
@@ -95,6 +95,16 @@ async def get(chat_id: int, chat_service: ChatService = Depends(get_chat_service
     chat = await chat_service.get(chat_id)
     return chat
 
+@router.get(
+    "/chat/{chat_id}/messages",
+    response_model=list[MessageHistoryDataSchema],
+)
+async def get_messages(
+    chat_id: int,
+    chat_service: ChatService = Depends(get_chat_service),
+    user_id: int = Depends(get_current_user_id),
+):
+    return await chat_service.get_messages(chat_id, user_id)
 
 @router.get("/chat", response_model=list[ChatSchema])
 async def get_many(

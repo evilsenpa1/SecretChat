@@ -19,6 +19,8 @@ function getCookie(name) {
 
 function App() {
   const socketRef = useRef(null);
+  const messagesRequestRef = useRef(0);
+  const loadedChatsRef = useRef(new Set());
   const [mode, setMode] = useState("json");
   const [url, setUrl] = useState(DEFAULT_URL);
   const [payload, setPayload] = useState("Привет из SecretChat");
@@ -29,6 +31,7 @@ function App() {
   const [chats, setChats] = useState([]);
   const [selectedChatId, setSelectedChatId] = useState("");
   const [chatsLoading, setChatsLoading] = useState(false);
+  const [messagesLoading, setMessagesLoading] = useState(false);
   const [newChatName, setNewChatName] = useState("");
   const [chatStatus, setChatStatus] = useState("");
   const [events, setEvents] = useState([]);
@@ -52,6 +55,13 @@ function App() {
       }
 
       setEvents((current) => {
+        const existingMessageIndex = current.findIndex(
+          (event) => event.messageId === String(message.data.id),
+        );
+        if (existingMessageIndex !== -1) {
+          return current;
+        }
+
         const localIndex = current.findIndex(
           (event) => event.clientMsgId === message.data.client_msg_id,
         );
@@ -62,6 +72,7 @@ function App() {
             value: JSON.stringify(message, null, 2),
             time: formatTime(),
             chatId: String(message.data.chat_id),
+            messageId: String(message.data.id),
             serverMessage: true,
           }];
         }
@@ -73,12 +84,77 @@ function App() {
           value: JSON.stringify(message, null, 2),
           pending: false,
           chatId: String(message.data.chat_id),
+          messageId: String(message.data.id),
           serverMessage: true,
         };
         return next;
       });
     } catch {
       addEvent("in", rawData);
+    }
+  };
+
+  const loadMessages = async (chatId) => {
+    const normalizedChatId = String(chatId);
+    if (loadedChatsRef.current.has(normalizedChatId)) {
+      setMessagesLoading(false);
+      return;
+    }
+
+    const requestId = messagesRequestRef.current + 1;
+    messagesRequestRef.current = requestId;
+    setMessagesLoading(true);
+    try {
+      const response = await fetch(`${API_URL}/chat/${chatId}/messages`, {
+        credentials: "include",
+      });
+      if (!response.ok) {
+        throw new Error("Не удалось загрузить сообщения");
+      }
+
+      const messages = await response.json();
+      if (requestId !== messagesRequestRef.current) return;
+      const historyEvents = messages.map((message) => ({
+        id: `history-${message.id}`,
+        type: "in",
+        value: JSON.stringify({
+          type: "message",
+          data: message,
+        }, null, 2),
+        time: message.created_at
+          ? new Intl.DateTimeFormat("ru-RU", {
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+          }).format(new Date(message.created_at))
+          : "--:--:--",
+        chatId: String(message.chat_id),
+        messageId: String(message.id),
+        historyMessage: true,
+      }));
+
+      loadedChatsRef.current.add(normalizedChatId);
+      const historyMessageIds = new Set(historyEvents.map((event) => event.messageId));
+      setEvents((current) => {
+        const liveChatEvents = current.filter(
+          (event) => event.chatId === normalizedChatId
+            && !event.historyMessage
+            && (!event.messageId || !historyMessageIds.has(event.messageId)),
+        );
+        return [
+          ...current.filter((event) => event.chatId !== normalizedChatId),
+          ...liveChatEvents,
+          ...historyEvents,
+        ].slice(-50);
+      });
+    } catch (error) {
+      if (requestId === messagesRequestRef.current) {
+        setChatStatus(error.message);
+      }
+    } finally {
+      if (requestId === messagesRequestRef.current) {
+        setMessagesLoading(false);
+      }
     }
   };
 
@@ -184,6 +260,12 @@ function App() {
 
   useEffect(() => () => socketRef.current?.close(), []);
 
+  useEffect(() => {
+    if (selectedChatId) {
+      loadMessages(selectedChatId);
+    }
+  }, [selectedChatId]);
+
   if (!isAuthenticated) {
     return (
       <main className="shell auth-shell">
@@ -266,10 +348,11 @@ function App() {
         </aside>
 
         <section className="panel log-panel">
-          <div className="panel-heading log-heading"><div><span className="section-number">04</span><h2>{selectedChat?.name || "Журнал событий"}</h2></div><button className="clear-button" onClick={() => setEvents((current) => current.filter((event) => event.chatId != null && event.chatId !== selectedChatId))} disabled={!visibleEvents.length}>Очистить чат</button></div>
+          <div className="panel-heading log-heading"><div><span className="section-number">04</span><h2>{selectedChat?.name || "Журнал событий"}</h2></div><button className="clear-button" onClick={() => setEvents((current) => current.filter((event) => event.chatId != null && event.chatId !== selectedChatId))} disabled={!visibleEvents.length || messagesLoading}>Очистить чат</button></div>
           <div className="event-list">
-            {!visibleEvents.length && <div className="empty-state"><div className="signal-art" aria-hidden="true"><span>NO SIGNAL</span></div><strong>Канал чист</strong><span>Выберите чат и отправьте первый кадр.</span></div>}
-            {visibleEvents.map((event) => <article className={`event ${event.type}`} key={event.id}><div className="event-meta"><span>{event.type === "in" ? "IN" : event.type === "out" ? "OUT" : event.type.toUpperCase()}</span><time>{event.time}</time></div><pre>{event.value}</pre></article>)}
+            {messagesLoading && <div className="empty-state"><div className="signal-art" aria-hidden="true"><span>SYNCING</span></div><strong>Загрузка канала</strong><span>Получаем сохранённые сообщения.</span></div>}
+            {!messagesLoading && !visibleEvents.length && <div className="empty-state"><div className="signal-art" aria-hidden="true"><span>NO SIGNAL</span></div><strong>Канал чист</strong><span>Выберите чат и отправьте первый кадр.</span></div>}
+            {!messagesLoading && visibleEvents.map((event) => <article className={`event ${event.type}`} key={event.id}><div className="event-meta"><span>{event.type === "in" ? "IN" : event.type === "out" ? "OUT" : event.type.toUpperCase()}</span><time>{event.time}</time></div><pre>{event.value}</pre></article>)}
           </div>
         </section>
       </section>
