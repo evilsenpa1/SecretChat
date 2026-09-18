@@ -34,6 +34,10 @@ function App() {
   const [events, setEvents] = useState([]);
   const [status, setStatus] = useState("offline");
   const isConnected = status === "online";
+  const selectedChat = chats.find((chat) => String(chat.id) === selectedChatId);
+  const visibleEvents = events.filter(
+    (event) => event.chatId == null || event.chatId === selectedChatId,
+  );
 
   const addEvent = (type, value, extra = {}) => setEvents((current) => [
     ...current.slice(-49), { id: crypto.randomUUID(), type, value, time: formatTime(), ...extra },
@@ -57,6 +61,7 @@ function App() {
             type: "in",
             value: JSON.stringify(message, null, 2),
             time: formatTime(),
+            chatId: String(message.data.chat_id),
             serverMessage: true,
           }];
         }
@@ -67,6 +72,7 @@ function App() {
           type: "in",
           value: JSON.stringify(message, null, 2),
           pending: false,
+          chatId: String(message.data.chat_id),
           serverMessage: true,
         };
         return next;
@@ -169,7 +175,11 @@ function App() {
       data: { chat_id: Number(selectedChatId), client_msg_id: clientMsgId, body: payload },
     };
     socketRef.current.send(JSON.stringify(message));
-    addEvent("out", JSON.stringify(message, null, 2), { clientMsgId, pending: true });
+    addEvent("out", JSON.stringify(message, null, 2), {
+      clientMsgId,
+      pending: true,
+      chatId: selectedChatId,
+    });
   };
 
   useEffect(() => () => socketRef.current?.close(), []);
@@ -213,11 +223,26 @@ function App() {
       <section className="workspace">
         <aside className="panel controls-panel">
           <div className="panel-heading"><div><span className="section-number">01</span><h2>Чат</h2></div><span className="lock">AUTHENTICATED</span></div>
-          <label className="field-label" htmlFor="chat-select">Выберите чат</label>
-          <select id="chat-select" value={selectedChatId} onChange={(event) => setSelectedChatId(event.target.value)} disabled={chatsLoading || !chats.length}>
-            {!chats.length && <option value="">{chatsLoading ? "Загрузка чатов..." : "Чаты не найдены"}</option>}
-            {chats.map((chat) => <option value={chat.id} key={chat.id}>{chat.name} · #{chat.id}</option>)}
-          </select>
+          <label className="field-label">Ваши чаты</label>
+          <div className="chat-list" aria-label="Список чатов">
+            {!chats.length && <div className="chat-list-empty">{chatsLoading ? "Загрузка чатов..." : "Чаты не найдены"}</div>}
+            {chats.map((chat) => {
+              const chatId = String(chat.id);
+              const messageCount = events.filter((event) => event.chatId === chatId).length;
+              return (
+                <button
+                  className={`chat-item ${chatId === selectedChatId ? "active" : ""}`}
+                  key={chat.id}
+                  type="button"
+                  onClick={() => setSelectedChatId(chatId)}
+                >
+                  <span className="chat-item-icon">//</span>
+                  <span className="chat-item-copy"><strong>{chat.name}</strong><small>CHANNEL #{chat.id}</small></span>
+                  <span className="chat-item-count">{messageCount}</span>
+                </button>
+              );
+            })}
+          </div>
           <form className="create-chat-form" onSubmit={createChat}>
             <label className="field-label" htmlFor="new-chat-name">Новый чат</label>
             <div className="create-chat-row">
@@ -233,6 +258,7 @@ function App() {
           <div className="hint"><span>i</span> Cookie `access_token` и `csrf_access_token` браузер добавит автоматически, если backend доступен на этом origin.</div>
 
           <div className="panel-heading message-heading"><div><span className="section-number">03</span><h2>Отправка</h2></div></div>
+          <div className="active-chat-banner"><span className="active-chat-mark" aria-hidden="true">//</span><span>Сейчас в чате <strong>{selectedChat?.name || "не выбран"}</strong></span></div>
           <label className="field-label" htmlFor="message">Сообщение для выбранного чата</label>
           <textarea id="message" value={payload} onChange={(event) => setPayload(event.target.value)} rows="5" />
           <button className="send-button" onClick={sendMessage} disabled={!isConnected || !selectedChatId}>Отправить сообщение <span>→</span></button>
@@ -240,10 +266,10 @@ function App() {
         </aside>
 
         <section className="panel log-panel">
-          <div className="panel-heading log-heading"><div><span className="section-number">04</span><h2>Журнал событий</h2></div><button className="clear-button" onClick={() => setEvents([])} disabled={!events.length}>Очистить</button></div>
+          <div className="panel-heading log-heading"><div><span className="section-number">04</span><h2>{selectedChat?.name || "Журнал событий"}</h2></div><button className="clear-button" onClick={() => setEvents((current) => current.filter((event) => event.chatId != null && event.chatId !== selectedChatId))} disabled={!visibleEvents.length}>Очистить чат</button></div>
           <div className="event-list">
-            {!events.length && <div className="empty-state"><div className="empty-icon">⌁</div><strong>Пока тихо</strong><span>Подключитесь и отправьте первый кадр.</span></div>}
-            {events.map((event) => <article className={`event ${event.type}`} key={event.id}><div className="event-meta"><span>{event.type === "in" ? "IN" : event.type === "out" ? "OUT" : event.type.toUpperCase()}</span><time>{event.time}</time></div><pre>{event.value}</pre></article>)}
+            {!visibleEvents.length && <div className="empty-state"><div className="signal-art" aria-hidden="true"><span>NO SIGNAL</span></div><strong>Канал чист</strong><span>Выберите чат и отправьте первый кадр.</span></div>}
+            {visibleEvents.map((event) => <article className={`event ${event.type}`} key={event.id}><div className="event-meta"><span>{event.type === "in" ? "IN" : event.type === "out" ? "OUT" : event.type.toUpperCase()}</span><time>{event.time}</time></div><pre>{event.value}</pre></article>)}
           </div>
         </section>
       </section>

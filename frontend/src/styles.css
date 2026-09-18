@@ -14,7 +14,12 @@
 body {
     margin: 0;
     min-width: 320px;
-    background: radial-gradient(circle at 15% 0%, #1a3542 0, transparent 35%), #0e1725;
+    background:
+        linear-gradient(rgba(108, 224, 192, .035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(108, 224, 192, .035) 1px, transparent 1px),
+        radial-gradient(circle at 80% 15%, rgba(46, 102, 104, .24), transparent 32%),
+        #0e1725;
+    background-size: 34px 34px, 34px 34px, auto, auto;
 }
 
 button,
@@ -43,6 +48,17 @@ button:disabled {
     align-items: center;
     gap: 18px;
     margin-bottom: 38px;
+    position: relative;
+}
+
+.hero::after {
+    content: "SECURE CHANNEL // 0x04";
+    position: absolute;
+    right: 0;
+    bottom: -22px;
+    color: #3b5360;
+    font: 500 9px "DM Mono", monospace;
+    letter-spacing: .16em;
 }
 
 .brand-mark {
@@ -136,8 +152,9 @@ h1 span {
 
 .panel {
     border: 1px solid #253448;
-    background: rgba(16, 27, 45, .78);
+    background: rgba(10, 20, 33, .88);
     box-shadow: 0 18px 60px rgba(0, 0, 0, .16);
+    backdrop-filter: blur(8px);
 }
 
 .controls-panel {
@@ -218,16 +235,6 @@ h1 span {
     margin-bottom: 23px;
 }
 
-select {
-    width: 100%;
-    border: 1px solid #2b3b50;
-    outline: none;
-    color: #e9eef5;
-    background: #111e30;
-    padding: 12px 13px;
-    border-radius: 0;
-}
-
 .auth-shell {
     max-width: 620px;
 }
@@ -244,6 +251,100 @@ select {
 
 .create-chat-form {
     margin-top: 15px;
+}
+
+.chat-list {
+    display: grid;
+    gap: 6px;
+    max-height: 190px;
+    overflow-y: auto;
+    padding-right: 3px;
+}
+
+.chat-list-empty {
+    padding: 13px;
+    color: #697b8f;
+    border: 1px dashed #2b3b50;
+    font: 11px "DM Mono", monospace;
+}
+
+.chat-item {
+    display: grid;
+    grid-template-columns: 28px 1fr auto;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 10px 11px;
+    border: 1px solid transparent;
+    color: #bdc9d5;
+    text-align: left;
+    background: #111e30;
+}
+
+.chat-item:hover,
+.chat-item.active {
+    border-color: #35685f;
+    background: #152c36;
+}
+
+.chat-item-icon {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    color: #091b1b;
+    background: #6ce0c0;
+    font: 700 11px "DM Mono", monospace;
+}
+
+.chat-item-copy {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
+}
+
+.chat-item-copy strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+}
+
+.chat-item-copy small,
+.chat-item-count {
+    color: #63758a;
+    font: 9px "DM Mono", monospace;
+}
+
+.chat-item.active .chat-item-copy strong,
+.chat-item.active .chat-item-count {
+    color: #6ce0c0;
+}
+
+.active-chat-banner {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    min-height: 34px;
+    margin: -3px 0 14px;
+    padding: 5px 8px;
+    color: #73869a;
+    background: #0c1827;
+    font: 10px "DM Mono", monospace;
+}
+
+.active-chat-mark {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    color: #091b1b;
+    background: #6ce0c0;
+    font-weight: 800;
+}
+
+.active-chat-banner strong {
+    color: #6ce0c0;
 }
 
 .create-chat-row {
@@ -407,6 +508,45 @@ textarea {
     font-size: 12px;
 }
 
+.signal-art {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 100px;
+    height: 56px;
+    border: 1px solid #315f59;
+    color: #6ce0c0;
+    background: repeating-linear-gradient(0deg, rgba(108, 224, 192, .11) 0 1px, transparent 1px 5px), #0c1a27;
+    margin-bottom: 2px;
+}
+
+.signal-art::before,
+.signal-art::after {
+    content: "";
+    position: absolute;
+    width: 8px;
+    height: 8px;
+    border-color: #6ce0c0;
+    border-style: solid;
+}
+
+.signal-art::before {
+    top: -1px;
+    left: -1px;
+    border-width: 1px 0 0 1px;
+}
+
+.signal-art::after {
+    right: -1px;
+    bottom: -1px;
+    border-width: 0 1px 1px 0;
+}
+
+.signal-art span {
+    font: 9px "DM Mono", monospace;
+    letter-spacing: .12em;
+}
+
 .empty-state strong {
     color: #b8c3cf;
     font-size: 14px;
@@ -494,6 +634,12 @@ footer {
         align-items: flex-start;
         flex-wrap: wrap;
         margin-bottom: 25px;
+    }
+
+    .hero::after {
+        position: static;
+        width: 100%;
+        margin-top: -10px;
     }
 
     .status-pill {
