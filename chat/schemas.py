@@ -1,7 +1,7 @@
 from enum import StrEnum
 
 from pydantic import BaseModel, Field
-
+from datetime import datetime
 from users.schemas import UserResponseSchema
 
 
@@ -48,3 +48,9 @@ class MessageResponseDataSchema(BaseModel):
 class MessageResponseSchema(BaseModel):
     type: MessageType
     data: MessageResponseDataSchema
+
+class MessageHistoryDataSchema(BaseModel):
+    id: int
+    chat_id: int
+    body: str
+    created_at: datetime

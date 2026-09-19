@@ -67,6 +67,11 @@ class ChatRepository:
         await self.session.refresh(chat, attribute_names=["owner", "members"])
         return chat
 
+    async def delete(self, chat: ChatModel) -> None:
+        await self.session.delete(chat)
+        await self.session.flush()
+        await self.session.commit()
+
     async def create_message(self, message: MessageRequestSchema, user: UserModel) -> MessageModel:
         chat = await self.get(message.data.chat_id)
         date = datetime.today()
@@ -75,6 +80,13 @@ class ChatRepository:
         await self.session.commit()
         await self.session.refresh(result, attribute_names=["owner"])
         return result
+
+    async def get_messages(self, chat_id) -> list[MessageModel]:
+        messages = select(MessageModel).where(MessageModel.chat_id == chat_id)
+
+        messages = await self.session.execute(messages)
+
+        return list(messages.scalars().all())
 
 
 def get_chat_repository(

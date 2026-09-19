@@ -11,6 +11,7 @@ from .repository import ChatRepository, get_chat_repository
 from .schemas import (
     ChatCreateSchema,
     ChatPatchSchema,
+    MessageHistoryDataSchema,
     MessageRequestSchema,
     MessageResponseSchema,
     MessageType,
@@ -40,14 +41,29 @@ class ChatService:
 
         return await self.repo.patch(data=data, chat=chat)
 
-    async def create_message(self, message: MessageRequestSchema, user: UserModel) -> MessageModel:
+    async def delete(self, chat_id: int, user_id: int):
+        user = await self.user_service.get(user_id)
+        chat = await self.get(chat_id)
+        if user.id != chat.owner.id:
+            raise ChatPermissionError
+
+        return await self.repo.delete(chat)
+
+    async def create_message(
+        self, message: MessageRequestSchema, user: UserModel
+    ) -> MessageModel:
         return await self.repo.create_message(message, user)
+
+    async def get_messages(self, chat_id: int, user_id: int) -> list[MessageModel]:
+        chat = await self.get(chat_id)
+        if user_id not in {i.id for i in chat.members}:
+            raise ChatPermissionError
+        return await self.repo.get_messages(chat_id)
 
 
 class ConnectionManager:
-    def __init__(self, chat_service: ChatService) -> None:
+    def __init__(self) -> None:
         self.active_connections: dict[int, WebSocket] = {}
-        self.chat_service = chat_service
 
     async def connect(
         self,
@@ -66,9 +82,11 @@ class ConnectionManager:
         user_conn = self.active_connections[user.id]
         await user_conn.send_text(message)
 
-    async def broadcast(self, message: MessageRequestSchema, user: UserModel):
+    async def broadcast(
+        self, message: MessageRequestSchema, user: UserModel, chat_service: ChatService
+    ):
         client_msg_id = message.data.client_msg_id
-        result = await self.chat_service.create_message(message, user)
+        result = await chat_service.create_message(message, user)
         result = {
             "type": MessageType.message,
             "data": {**vars(result), "client_msg_id": client_msg_id},
@@ -86,7 +104,5 @@ def get_chat_service(
 
 
 @lru_cache
-def get_connection_manager(
-    chat_service: ChatService = Depends(get_chat_service),
-) -> ConnectionManager:
-    return ConnectionManager(chat_service)
+def get_connection_manager() -> ConnectionManager:
+    return ConnectionManager()
