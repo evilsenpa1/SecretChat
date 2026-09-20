@@ -26,17 +26,50 @@ SecretChat задуманий як навчальний проєкт для пр
 
 ### 1. Налаштувати середовище
 
-Створіть файл `.env` у корені проєкту:
+Створіть `.env` на основі прикладу в корені проєкту:
 
-```env
-DB_USER=postgres
-DB_PASSWORD=your_password
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=secretchat
-DEBUG=true
-JWT_SECRET_KEY=change-me-to-a-long-random-secret
+```bash
+cp .env.example .env
 ```
+
+### 2. Запуск через Docker Compose
+
+Зберіть образи та запустіть PostgreSQL:
+
+```bash
+docker compose up -d --build db
+```
+
+Застосуйте міграції:
+
+```bash
+docker compose run --rm backend alembic upgrade head
+```
+
+Запустіть backend і frontend:
+
+```bash
+docker compose up -d backend frontend
+```
+
+API буде доступний за адресою `http://127.0.0.1:8080`, а frontend — за адресою `http://localhost:5173`.
+
+Перегляд логів або зупинка сервісів:
+
+```bash
+docker compose logs -f backend
+docker compose down
+```
+
+### 3. Локальний запуск
+
+Запустіть через Docker Compose лише PostgreSQL:
+
+```bash
+docker compose up -d db
+```
+
+Створіть `.env` на основі `.env.example` і налаштуйте параметри підключення до бази даних для свого локального середовища.
 
 Встановіть Python-залежності та активуйте віртуальне середовище. Наприклад, за допомогою `uv`:
 
@@ -44,7 +77,19 @@ JWT_SECRET_KEY=change-me-to-a-long-random-secret
 uv sync
 ```
 
-### 2. Запустити backend
+Застосуйте наявні міграції:
+
+```bash
+uv run alembic upgrade head
+```
+
+Створіть нову міграцію після зміни SQLAlchemy-моделей:
+
+```bash
+uv run alembic revision --autogenerate -m "describe the change"
+```
+
+Запустіть backend:
 
 ```bash
 uv run uvicorn main:app --reload
@@ -52,7 +97,7 @@ uv run uvicorn main:app --reload
 
 API буде доступний за адресою `http://127.0.0.1:8000`.
 
-### 3. Запустити frontend
+Запустіть frontend у другому терміналі:
 
 ```bash
 cd frontend
