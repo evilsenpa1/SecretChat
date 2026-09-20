@@ -3,8 +3,8 @@ import { createRoot } from "react-dom/client";
 import "./styles.css";
 
 const API_HOST = window.location.hostname || "127.0.0.1";
-const API_URL = `http://${API_HOST}:8000`;
-const DEFAULT_URL = `ws://${API_HOST}:8000/ws`;
+const API_URL = `http://${API_HOST}:8080`;
+const DEFAULT_URL = `ws://${API_HOST}:8080/ws`;
 
 function formatTime() {
   return new Intl.DateTimeFormat("ru-RU", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date());

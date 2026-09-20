@@ -26,17 +26,50 @@ SecretChat is designed as a learning project for private communication: the serv
 
 ### 1. Configure the environment
 
-Create a `.env` file in the project root:
+Create `.env` from the example file in the project root:
 
-```env
-DB_USER=postgres
-DB_PASSWORD=your_password
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=secretchat
-DEBUG=true
-JWT_SECRET_KEY=change-me-to-a-long-random-secret
+```bash
+cp .env.example .env
 ```
+
+### 2. Run with Docker Compose
+
+Build the images and start PostgreSQL:
+
+```bash
+docker compose up -d --build db
+```
+
+Apply the migrations:
+
+```bash
+docker compose run --rm backend alembic upgrade head
+```
+
+Start the backend and frontend:
+
+```bash
+docker compose up -d backend frontend
+```
+
+The API will be available at `http://127.0.0.1:8080`, and the frontend at `http://localhost:5173`.
+
+View service logs or stop the services:
+
+```bash
+docker compose logs -f backend
+docker compose down
+```
+
+### 3. Run locally
+
+Start only PostgreSQL with Docker Compose:
+
+```bash
+docker compose up -d db
+```
+
+Create `.env` from `.env.example` and adjust the database connection values for your local setup.
 
 Install the Python dependencies and activate the virtual environment. For example, with `uv`:
 
@@ -44,7 +77,19 @@ Install the Python dependencies and activate the virtual environment. For exampl
 uv sync
 ```
 
-### 2. Start the backend
+Apply existing migrations:
+
+```bash
+uv run alembic upgrade head
+```
+
+Create a new migration after changing the SQLAlchemy models:
+
+```bash
+uv run alembic revision --autogenerate -m "describe the change"
+```
+
+Start the backend:
 
 ```bash
 uv run uvicorn main:app --reload
@@ -52,7 +97,7 @@ uv run uvicorn main:app --reload
 
 The API will be available at `http://127.0.0.1:8000`.
 
-### 3. Start the frontend
+Start the frontend in a second terminal:
 
 ```bash
 cd frontend

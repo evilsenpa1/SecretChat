@@ -11,7 +11,6 @@ from .repository import ChatRepository, get_chat_repository
 from .schemas import (
     ChatCreateSchema,
     ChatPatchSchema,
-    MessageHistoryDataSchema,
     MessageRequestSchema,
     MessageResponseSchema,
     MessageType,
@@ -86,14 +85,20 @@ class ConnectionManager:
         self, message: MessageRequestSchema, user: UserModel, chat_service: ChatService
     ):
         client_msg_id = message.data.client_msg_id
+        chat = await chat_service.get(message.data.chat_id)
+        chat_memebers_id = {i.id for i in chat.members}
+        if user.id not in chat_memebers_id:
+            raise ChatPermissionError
+
         result = await chat_service.create_message(message, user)
         result = {
             "type": MessageType.message,
             "data": {**vars(result), "client_msg_id": client_msg_id},
         }
         result = MessageResponseSchema(**result)
-        for connection in self.active_connections.values():
-            await connection.send_json(result.model_dump(mode="json"))
+        for connection in {self.active_connections.get(i) for i in chat_memebers_id}:
+            if connection is not None:
+                await connection.send_json(result.model_dump(mode="json"))
 
 
 def get_chat_service(
