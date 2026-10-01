@@ -111,8 +111,31 @@ h1 span {
     margin-top: 10px;
 }
 
-.status-pill {
+.topbar-actions {
     margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.user-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 9px 12px;
+    border: 1px solid #2f455a;
+    color: #c5d0db;
+    background: rgba(17, 30, 48, 0.9);
+    font: 500 11px "DM Mono", monospace;
+    text-transform: uppercase;
+}
+
+.user-pill strong {
+    color: #6ce0c0;
+    font-weight: 700;
+}
+
+.status-pill {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -230,10 +253,6 @@ h1 span {
     line-height: 1.5;
 }
 
-.connection-heading {
-    margin-top: 30px;
-    margin-bottom: 23px;
-}
 
 .auth-shell {
     max-width: 620px;
@@ -361,6 +380,42 @@ h1 span {
     margin-top: 8px;
 }
 
+.crypto-status {
+    color: #6ce0c0;
+    font: 9px/1.5 "DM Mono", monospace;
+    letter-spacing: .04em;
+    margin-top: 8px;
+}
+
+.management-heading {
+    margin-top: 28px;
+    margin-bottom: 16px;
+}
+
+.management-form {
+    display: grid;
+    gap: 8px;
+    margin-bottom: 18px;
+}
+
+.management-form .field-label:not(:first-child) {
+    margin-top: 5px;
+}
+
+select {
+    width: 100%;
+    border: 1px solid #2b3b50;
+    outline: none;
+    color: #e9eef5;
+    background: #111e30;
+    padding: 12px 13px;
+    border-radius: 0;
+}
+
+select:focus {
+    border-color: #6ce0c0;
+}
+
 input,
 textarea {
     width: 100%;
@@ -382,13 +437,6 @@ textarea {
     resize: vertical;
     line-height: 1.55;
     min-height: 116px;
-}
-
-.button-row {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
-    margin-top: 10px;
 }
 
 .primary-button,
