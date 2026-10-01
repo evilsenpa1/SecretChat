@@ -7,7 +7,9 @@ router = APIRouter()
 
 
 @router.post("/user", status_code=status.HTTP_201_CREATED)
-async def create(data: LoginRequestSchema, service: UserService = Depends(get_user_service)):
+async def create(
+    data: LoginRequestSchema, service: UserService = Depends(get_user_service)
+):
 
     await service.create(data)
     return {"result": "ok"}
@@ -22,7 +24,9 @@ async def get(id: int, service: UserService = Depends(get_user_service)):
 
 @router.post("/auth")
 async def login(
-    data: LoginRequestSchema, response: Response, service: UserService = Depends(get_user_service)
+    data: LoginRequestSchema,
+    response: Response,
+    service: UserService = Depends(get_user_service),
 ):
 
     await service.login(data=data, response=response)
