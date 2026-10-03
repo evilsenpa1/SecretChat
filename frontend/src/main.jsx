@@ -6,7 +6,10 @@ import {
   decryptMessage,
   encryptMessage,
   exportPublicKey,
-  getChatKeyPair
+  getChatKeyPair,
+  getRsaStorageKey,
+  importPublicKey,
+  wrapChatKey,
 } from "./chatCrypto.js";
 import "./styles.css";
 
@@ -51,8 +54,13 @@ function App() {
   const [chatMetaName, setChatMetaName] = useState("");
   const [chatMetaOwnerId, setChatMetaOwnerId] = useState("");
   const [newMemberId, setNewMemberId] = useState("");
-  const [memberToDelete, setMemberToDelete] = useState("");
-  const [wrappedKeys, setWrappedKeys] = useState("[]");
+  const [currentUserId, setCurrentUserId] = useState(null);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [invites, setInvites] = useState([]);
+  const [invitesLoading, setInvitesLoading] = useState(false);
+  const [inviteStatus, setInviteStatus] = useState("");
+  const [inviteActionId, setInviteActionId] = useState("");
+  const [inviteSubmitting, setInviteSubmitting] = useState(false);
   const [chatStatus, setChatStatus] = useState("");
   const [events, setEvents] = useState([]);
   const [status, setStatus] = useState("offline");
@@ -256,6 +264,33 @@ function App() {
     }
   };
 
+  const loadProfile = async () => {
+    setProfileLoading(true);
+    try {
+      const response = await fetch(`${API_URL}/user/me`, { credentials: "include" });
+      if (response.status === 401) {
+        localStorage.removeItem("secret-chat-user");
+        setName("");
+        setIsAuthenticated(false);
+        setAuthStatus("Сессия истекла, войдите снова");
+        throw new Error("Не удалось загрузить профиль пользователя: сессия истекла");
+      }
+      if (!response.ok) {
+        throw new Error(`Не удалось загрузить профиль пользователя (${response.status})`);
+      }
+      const profile = await response.json();
+      setCurrentUserId(profile.id);
+      setInviteStatus((current) => current.startsWith("Не удалось загрузить профиль пользователя") ? "" : current);
+      return profile;
+    } catch (error) {
+      setCurrentUserId(null);
+      setInviteStatus(error.message);
+      return null;
+    } finally {
+      setProfileLoading(false);
+    }
+  };
+
   const loadChats = async () => {
     setChatsLoading(true);
     try {
@@ -266,6 +301,7 @@ function App() {
           setName("");
           setIsAuthenticated(false);
           setAuthStatus("Сессия истекла, войдите снова");
+          throw new Error("Сессия истекла, войдите снова");
         }
         throw new Error("Не удалось загрузить чаты");
       }
@@ -298,18 +334,170 @@ function App() {
       setChatsLoading(false);
     }
   };
+
+  const loadInvites = async () => {
+    setInvitesLoading(true);
+    try {
+      const response = await fetch(`${API_URL}/chat/invites/me`, { credentials: "include" });
+      if (!response.ok) throw new Error("Не удалось загрузить приглашения");
+      setInvites(await response.json());
+    } catch (error) {
+      setInviteStatus(error.message);
+    } finally {
+      setInvitesLoading(false);
+    }
+  };
+
+  const sendInvite = async (event) => {
+    event.preventDefault();
+    if (!selectedChat || !newMemberId) return;
+    if (selectedChat.owner?.id !== currentUserId) {
+      setInviteStatus("Приглашать участников может только владелец чата");
+      return;
+    }
+
+    const memberId = Number(newMemberId);
+    if (!Number.isSafeInteger(memberId) || memberId <= 0) {
+      setInviteStatus("Укажите корректный ID пользователя");
+      return;
+    }
+    if (selectedChat.members?.some((member) => member.id === memberId)) {
+      setInviteStatus("Этот пользователь уже состоит в чате");
+      return;
+    }
+
+    setInviteSubmitting(true);
+    setInviteStatus("Отправляем приглашение...");
+    try {
+      const response = await fetch(`${API_URL}/chat/${selectedChat.id}/invites/`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-TOKEN": getCookie("csrf_access_token"),
+        },
+        credentials: "include",
+        body: JSON.stringify({ user_ids: [memberId] }),
+      });
+      if (!response.ok) {
+        throw new Error(response.status === 403
+          ? "Приглашать участников может только владелец чата"
+          : "Не удалось отправить приглашение");
+      }
+      setNewMemberId("");
+      setInviteStatus(`Приглашение пользователю #${memberId} отправлено`);
+    } catch (error) {
+      setInviteStatus(error.message);
+    } finally {
+      setInviteSubmitting(false);
+    }
+  };
+
+  const acceptInvite = async (invite) => {
+    if (!currentUserId) {
+      setInviteStatus("Профиль ещё не загружен. Обновите страницу или войдите снова.");
+      return;
+    }
+
+    setInviteActionId(String(invite.id));
+    setInviteStatus("Подготавливаем ключи чата...");
+    try {
+      const chatResponse = await fetch(`${API_URL}/chat/${invite.chat_id}`, {
+        credentials: "include",
+      });
+      if (!chatResponse.ok) throw new Error("Не удалось загрузить данные чата");
+      const chat = await chatResponse.json();
+      if (chat.members?.some((member) => member.id === currentUserId)) {
+        throw new Error("Вы уже состоите в этом чате");
+      }
+
+      const rsaPair = await getChatKeyPair(chat.id, name);
+      const publicKey = await exportPublicKey(rsaPair.publicKey);
+      const { aesKey } = await createChatKey(rsaPair.publicKey);
+      const wrappedKeys = await Promise.all((chat.members || []).map(async (member) => {
+        let memberPublicKey;
+        try {
+          memberPublicKey = await importPublicKey(member.public_key);
+        } catch {
+          throw new Error(
+            `Участник ${member.name} (#${member.id}) имеет некорректный RSA-ключ. `
+            + "Чат создан с тестовой заглушкой ключа; его нужно пересоздать с фронтенда.",
+          );
+        }
+        return {
+          user_id: member.id,
+          encrypted_key: await wrapChatKey(aesKey, memberPublicKey),
+        };
+      }));
+      wrappedKeys.push({
+        user_id: currentUserId,
+        encrypted_key: await wrapChatKey(aesKey, rsaPair.publicKey),
+      });
+
+      const response = await fetch(`${API_URL}/chat/invites/${invite.id}/accept`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-TOKEN": getCookie("csrf_access_token"),
+        },
+        credentials: "include",
+        body: JSON.stringify({
+          new_version: chat.current_key_version + 1,
+          new_members: [{ member_id: currentUserId, public_key: publicKey }],
+          wrapped_keys: wrappedKeys,
+        }),
+      });
+      if (!response.ok) throw new Error("Не удалось принять приглашение");
+
+      const updatedChat = await response.json();
+      chatRsaKeysRef.current.set(String(updatedChat.id), rsaPair);
+      chatKeysRef.current.set(String(updatedChat.id), aesKey);
+      chatKeyVersionsRef.current.set(String(updatedChat.id), updatedChat.current_key_version);
+      setChats((current) => [
+        ...current.filter((item) => item.id !== updatedChat.id),
+        updatedChat,
+      ]);
+      setInvites((current) => current.filter((item) => item.id !== invite.id));
+      setSelectedChatId(String(updatedChat.id));
+      setInviteStatus(`Вы присоединились к чату «${updatedChat.name}»`);
+    } catch (error) {
+      setInviteStatus(error.message);
+    } finally {
+      setInviteActionId("");
+    }
+  };
+
+  const declineInvite = async (invite) => {
+    setInviteActionId(String(invite.id));
+    setInviteStatus("Отклоняем приглашение...");
+    try {
+      const response = await fetch(`${API_URL}/chat/invites/${invite.id}/decline/`, {
+        method: "DELETE",
+        headers: { "X-CSRF-TOKEN": getCookie("csrf_access_token") },
+        credentials: "include",
+      });
+      if (!response.ok) throw new Error("Не удалось отклонить приглашение");
+      setInvites((current) => current.filter((item) => item.id !== invite.id));
+      setInviteStatus("Приглашение отклонено");
+    } catch (error) {
+      setInviteStatus(error.message);
+    } finally {
+      setInviteActionId("");
+    }
+  };
+
   const createChat = async (event) => {
     event.preventDefault();
     const chatName = newChatName.trim();
     if (!chatName || typeof crypto?.subtle === "undefined") return;
 
     const temporaryChatId = `temp-${Date.now()}`;
-    const chatRsaPair = await getChatKeyPair(temporaryChatId, name);
-    const publicKey = await exportPublicKey(chatRsaPair.publicKey);
-    const { aesKey, encryptedKey } = await createChatKey(chatRsaPair.publicKey);
+    const temporaryKeyStorageKey = getRsaStorageKey(name, temporaryChatId);
 
     setChatStatus("Создаём...");
     try {
+      const chatRsaPair = await getChatKeyPair(temporaryChatId, name);
+      const publicKey = await exportPublicKey(chatRsaPair.publicKey);
+      const { aesKey, encryptedKey } = await createChatKey(chatRsaPair.publicKey);
       const response = await fetch(`${API_URL}/chat`, {
         method: "POST",
         headers: {
@@ -333,7 +521,6 @@ function App() {
       };
       const serializedPair = JSON.stringify(storedPair);
       const chatKeyStorageKey = getRsaStorageKey(name, chat.id);
-      const temporaryKeyStorageKey = getRsaStorageKey(name, temporaryChatId);
       sessionStorage.setItem(chatKeyStorageKey, serializedPair);
       sessionStorage.removeItem(temporaryKeyStorageKey);
       chatRsaKeysRef.current.set(String(chat.id), chatRsaPair);
@@ -344,6 +531,7 @@ function App() {
       setChatStatus(`Чат «${chat.name}» создан`);
       addEvent("system", `Создан чат #${chat.id}: ${chat.name}`);
     } catch (error) {
+      sessionStorage.removeItem(temporaryKeyStorageKey);
       setChatStatus(error.message);
       addEvent("error", error.message);
     }
@@ -379,68 +567,6 @@ function App() {
     }
   };
 
-  const addMember = async (event) => {
-    event.preventDefault();
-    if (!selectedChatId || !newMemberId) {
-      setChatStatus("Выберите чат и укажите ID пользователя");
-      return;
-    }
-
-    const memberId = Number(newMemberId);
-    if (!Number.isSafeInteger(memberId) || memberId <= 0) {
-      setChatStatus("Укажите корректный ID пользователя");
-      return;
-    }
-    if (selectedChat?.members?.some((member) => member.id === memberId)) {
-      setChatStatus("Этот пользователь уже состоит в чате");
-      return;
-    }
-
-    setChatStatus(
-      `Черновик: пользователь #${memberId} `
-      + `в чат #${selectedChatId}. Механизм приглашений ещё не подключён.`,
-    );
-    setNewMemberId("");
-  };
-
-  const deleteMember = async (event) => {
-    event.preventDefault();
-    if (!selectedChatId || !memberToDelete) return;
-
-    let parsedWrappedKeys;
-    try {
-      parsedWrappedKeys = JSON.parse(wrappedKeys);
-      if (!Array.isArray(parsedWrappedKeys)) throw new Error();
-    } catch {
-      setChatStatus("wrapped_keys должен быть JSON-массивом");
-      return;
-    }
-
-    setChatStatus("Удаляем участника...");
-    try {
-      const response = await fetch(`${API_URL}/chat/${selectedChatId}/members`, {
-        method: "DELETE",
-        headers: {
-          "Content-Type": "application/json",
-          "X-CSRF-TOKEN": getCookie("csrf_access_token"),
-        },
-        credentials: "include",
-        body: JSON.stringify({
-          member_ids: [Number(memberToDelete)],
-          new_version: (selectedChat?.current_key_version || 0) + 1,
-          wrapped_keys: parsedWrappedKeys,
-        }),
-      });
-      if (!response.ok) throw new Error("Не удалось удалить участника");
-      const chat = await response.json();
-      setChats((current) => current.map((item) => item.id === chat.id ? chat : item));
-      setMemberToDelete("");
-      setChatStatus("Участник удалён");
-    } catch (error) {
-      setChatStatus(error.message);
-    }
-  };
-
   const login = async (event) => {
     event.preventDefault();
     setAuthStatus("Входим...");
@@ -456,7 +582,9 @@ function App() {
       setIsAuthenticated(true);
       setAuthStatus("Вход выполнен");
       addEvent("system", "Токены получены в cookie");
+      await loadProfile();
       if (await loadChats()) connect();
+      await loadInvites();
     } catch (error) {
       setAuthStatus(error.message);
       addEvent("error", error.message);
@@ -522,9 +650,11 @@ function App() {
   useEffect(() => {
     let active = true;
     if (localStorage.getItem("secret-chat-user")) {
+      loadProfile();
       loadChats().then((loaded) => {
         if (active && loaded) connect();
       });
+      loadInvites();
     }
     return () => {
       active = false;
@@ -655,6 +785,57 @@ function App() {
           </form>
           <div className="panel-heading management-heading">
             <div>
+              <span className="section-number">02</span>
+              <h2>Приглашения</h2>
+            </div>
+            <button
+              className="text-button"
+              type="button"
+              onClick={loadInvites}
+              disabled={invitesLoading}
+              aria-label="Обновить приглашения"
+              title="Обновить приглашения"
+            >
+              {invitesLoading ? "..." : "Обновить"}
+            </button>
+          </div>
+          <div className="invite-list" aria-live="polite">
+            {invitesLoading && !invites.length && <p className="invite-empty">Загружаем приглашения...</p>}
+            {!invitesLoading && !invites.length && <p className="invite-empty">Новых приглашений нет</p>}
+            {invites.map((invite) => (
+              <article className="invite-item" key={invite.id}>
+                <div className="invite-copy">
+                  <strong>{invite.chat_name}</strong>
+                  <small>Чат #{invite.chat_id} · приглашение #{invite.id}</small>
+                </div>
+                <div className="invite-actions">
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={() => acceptInvite(invite)}
+                    disabled={Boolean(inviteActionId) || profileLoading || !currentUserId}
+                    title={profileLoading ? "Загружаем профиль" : !currentUserId ? "Не удалось получить ID аккаунта" : "Принять приглашение"}
+                  >
+                    Принять
+                  </button>
+                  <button
+                    className="text-button danger-button"
+                    type="button"
+                    onClick={() => declineInvite(invite)}
+                    disabled={Boolean(inviteActionId)}
+                  >
+                    Отклонить
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+          {!profileLoading && !currentUserId && invites.length > 0 && (
+            <p className="invite-note">Не удалось загрузить ID аккаунта. Обновите страницу или войдите снова.</p>
+          )}
+          {inviteStatus && <p className="invite-status" role="status">{inviteStatus}</p>}
+          <div className="panel-heading management-heading">
+            <div>
               <span className="section-number">02A</span>
               <h2>Состав чата</h2>
             </div>
@@ -687,46 +868,32 @@ function App() {
               PATCH метаданных
             </button>
           </form>
-          <form className="management-form" onSubmit={addMember}>
-            <label className="field-label" htmlFor="new-member-id">
-              ID пользователя для приглашения в «{selectedChat?.name || "выберите чат"}»
-            </label>
-            <input
-              id="new-member-id"
-              type="number"
-              min="1"
-              value={newMemberId}
-              onChange={(event) => setNewMemberId(event.target.value)}
-              placeholder="ID пользователя"
-            />
-            <button className="secondary-button" type="submit" disabled={!selectedChatId || !newMemberId}>
-              Подготовить приглашение
-            </button>
-          </form>
-          <form className="management-form" onSubmit={deleteMember}>
-            <label className="field-label" htmlFor="member-to-delete">Удалить участника</label>
-            <select
-              id="member-to-delete"
-              value={memberToDelete}
-              onChange={(event) => setMemberToDelete(event.target.value)}
-              disabled={!selectedChat?.members?.length}
-            >
-              <option value="">Выберите участника</option>
-              {selectedChat?.members?.map((member) => (
-                <option key={member.id} value={member.id}>
-                  {member.name} (#{member.id})
-                </option>
-              ))}
-            </select>
-            <label className="field-label" htmlFor="wrapped-keys-delete">wrapped_keys JSON</label>
-            <textarea
-              id="wrapped-keys-delete"
-              value={wrappedKeys}
-              onChange={(event) => setWrappedKeys(event.target.value)}
-              rows="3"
-            />
-            <button className="secondary-button" type="submit" disabled={!memberToDelete}>DELETE участника</button>
-          </form>
+          {selectedChat?.owner?.name === name && (
+            <form className="management-form" onSubmit={sendInvite}>
+              <label className="field-label" htmlFor="new-member-id">
+                ID пользователя для приглашения
+              </label>
+              <div className="create-chat-row">
+                <input
+                  id="new-member-id"
+                  type="number"
+                  min="1"
+                  value={newMemberId}
+                  onChange={(event) => setNewMemberId(event.target.value)}
+                  placeholder="ID пользователя"
+                  required
+                />
+                <button
+                  className="secondary-button"
+                  type="submit"
+                  disabled={!selectedChatId || !newMemberId || inviteSubmitting}
+                >
+                  {inviteSubmitting ? "Отправка..." : "Пригласить"}
+                </button>
+              </div>
+              {inviteStatus && <p className="invite-status" role="status">{inviteStatus}</p>}
+            </form>
+          )}
           <div className="panel-heading message-heading">
             <div>
               <span className="section-number">03</span>

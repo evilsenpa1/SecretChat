@@ -17,7 +17,7 @@ function base64ToBytes(value) {
     return Uint8Array.from(binary, (character) => character.charCodeAt(0));
 }
 
-function getRsaStorageKey(username, chatId) {
+export function getRsaStorageKey(username, chatId) {
     return `${rsaKeyStoragePrefix}${encodeURIComponent(username || "guest")}-${chatId}`;
 }
 
@@ -106,6 +106,16 @@ export async function getChatKeyPair(chatId, username, expectedPublicKey) {
 
 export async function exportPublicKey(key) {
     return bytesToBase64(new Uint8Array(await crypto.subtle.exportKey("spki", key)));
+}
+
+export async function importPublicKey(value) {
+    return crypto.subtle.importKey(
+        "spki",
+        base64ToBytes(value),
+        rsaOaepAlgorithm,
+        true,
+        ["encrypt"],
+    );
 }
 
 export async function createChatKey(publicKey) {
