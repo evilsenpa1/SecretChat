@@ -82,31 +82,47 @@ function App() {
     ...current.slice(-49), { id: crypto.randomUUID(), type, value, time: formatTime(), ...extra },
   ]);
 
-  const refreshChatKey = async (chatId) => {
+  const refreshChatKeys = async (chatId) => {
     const normalizedChatId = String(chatId);
-    const currentKey = chatKeysRef.current.get(normalizedChatId);
+    const currentKeys = chatKeysRef.current.get(normalizedChatId) || new Map();
     const rsaPair = chatRsaKeysRef.current.get(normalizedChatId);
-    if (!rsaPair) return currentKey;
+    if (!rsaPair) return currentKeys;
 
     try {
       const response = await fetch(`${API_URL}/chat/${chatId}/keys`, { credentials: "include" });
-      if (!response.ok) return currentKey;
+      if (!response.ok) return currentKeys;
       const keys = await response.json();
-      const latestKey = keys.reduce(
-        (latest, key) => (!latest || key.version > latest.version ? key : latest),
-        null,
-      );
-      if (!latestKey || latestKey.version <= (chatKeyVersionsRef.current.get(normalizedChatId) || 0)) {
-        return currentKey;
+      const decryptedKeys = await Promise.all(keys.map(async (key) => {
+        if (currentKeys.has(key.version)) return [key.version, currentKeys.get(key.version)];
+        try {
+          return [key.version, await decryptChatKey(rsaPair.privateKey, key.encrypted_key)];
+        } catch {
+          return null;
+        }
+      }));
+      const updatedKeys = new Map(currentKeys);
+      decryptedKeys.forEach((entry) => {
+        if (entry) updatedKeys.set(entry[0], entry[1]);
+      });
+      const latestVersion = Math.max(...updatedKeys.keys());
+      if (Number.isFinite(latestVersion)) {
+        chatKeyVersionsRef.current.set(normalizedChatId, latestVersion);
       }
-
-      const aesKey = await decryptChatKey(rsaPair.privateKey, latestKey.encrypted_key);
-      chatKeysRef.current.set(normalizedChatId, aesKey);
-      chatKeyVersionsRef.current.set(normalizedChatId, latestKey.version);
-      return aesKey;
+      chatKeysRef.current.set(normalizedChatId, updatedKeys);
+      return updatedKeys;
     } catch {
-      return currentKey;
+      return currentKeys;
     }
+  };
+
+  const getChatKey = (chatId, version) => {
+    const normalizedChatId = String(chatId);
+    const keys = chatKeysRef.current.get(normalizedChatId);
+    if (!keys?.size) return undefined;
+    if (version != null) return keys.get(Number(version));
+
+    const currentVersion = chatKeyVersionsRef.current.get(normalizedChatId);
+    return keys.get(currentVersion) || keys.get(Math.max(...keys.keys()));
   };
 
   const parseServerMessage = async (rawData) => {
@@ -118,7 +134,14 @@ function App() {
       }
 
       let displayMessage = message;
-      let aesKey = chatKeysRef.current.get(String(message.data.chat_id));
+      const keyVersion = Number.isInteger(message.data.key_version)
+        ? message.data.key_version
+        : null;
+      let aesKey = getChatKey(message.data.chat_id, keyVersion);
+      if (!aesKey && message.data?.nonce) {
+        await refreshChatKeys(message.data.chat_id);
+        aesKey = getChatKey(message.data.chat_id, keyVersion);
+      }
       if (aesKey && message.data?.nonce) {
         try {
           displayMessage = {
@@ -129,18 +152,7 @@ function App() {
             },
           };
         } catch {
-          aesKey = await refreshChatKey(message.data.chat_id);
-          try {
-            displayMessage = {
-              ...message,
-              data: {
-                ...message.data,
-                body: await decryptMessage(aesKey, message.data.body, message.data.nonce),
-              },
-            };
-          } catch {
-            // Keep the encrypted payload visible when no matching key is available.
-          }
+          // Keep the encrypted payload visible when no matching key is available.
         }
       }
 
@@ -223,21 +235,24 @@ function App() {
         historyMessage: true,
       }));
 
-      const aesKey = chatKeysRef.current.get(normalizedChatId);
-      if (aesKey) {
-        await Promise.all(historyEvents.map(async (event) => {
-          try {
-            const message = JSON.parse(event.value);
-            if (!message.data?.nonce) {
-              return;
-            }
-            message.data.body = await decryptMessage(aesKey, message.data.body, message.data.nonce);
-            event.value = JSON.stringify(message, null, 2);
-          } catch {
-            // Keep legacy plaintext messages visible.
-          }
-        }));
-      }
+      const chatKeys = chatKeysRef.current.get(normalizedChatId) || new Map();
+      await Promise.all(historyEvents.map(async (event) => {
+        try {
+          const message = JSON.parse(event.value);
+          if (!message.data?.nonce) return;
+          const keyVersion = Number.isInteger(message.data.key_version)
+            ? message.data.key_version
+            : null;
+          const aesKey = keyVersion == null
+            ? getChatKey(chatId)
+            : chatKeys.get(keyVersion);
+          if (!aesKey) return;
+          message.data.body = await decryptMessage(aesKey, message.data.body, message.data.nonce);
+          event.value = JSON.stringify(message, null, 2);
+        } catch {
+          // Keep legacy plaintext messages and messages without an available key visible.
+        }
+      }));
 
       loadedChatsRef.current.add(normalizedChatId);
       const historyMessageIds = new Set(historyEvents.map((event) => event.messageId));
@@ -307,24 +322,17 @@ function App() {
       }
       const chatList = await response.json();
       setChats(chatList);
-      setSelectedChatId((current) => current || String(chatList[0]?.id || ""));
       await Promise.all(chatList.map(async (chat) => {
         try {
           const ownMember = chat.members?.find((member) => member.name === name);
           const rsaPair = await getChatKeyPair(chat.id, name, ownMember?.public_key);
           chatRsaKeysRef.current.set(String(chat.id), rsaPair);
-          const keyResponse = await fetch(`${API_URL}/chat/${chat.id}/keys`, { credentials: "include" });
-          const keys = await keyResponse.json();
-          const currentKey = keys.find((key) => key.version === chat.current_key_version);
-          if (keyResponse.ok && currentKey) {
-            const aesKey = await decryptChatKey(rsaPair.privateKey, currentKey.encrypted_key);
-            chatKeysRef.current.set(String(chat.id), aesKey);
-            chatKeyVersionsRef.current.set(String(chat.id), currentKey.version);
-          }
+          await refreshChatKeys(chat.id);
         } catch {
           // A chat can be listed before its key is available.
         }
       }));
+      setSelectedChatId((current) => current || String(chatList[0]?.id || ""));
       return true;
     } catch (error) {
       setAuthStatus(error.message);
@@ -450,7 +458,10 @@ function App() {
 
       const updatedChat = await response.json();
       chatRsaKeysRef.current.set(String(updatedChat.id), rsaPair);
-      chatKeysRef.current.set(String(updatedChat.id), aesKey);
+      chatKeysRef.current.set(
+        String(updatedChat.id),
+        new Map([[updatedChat.current_key_version, aesKey]]),
+      );
       chatKeyVersionsRef.current.set(String(updatedChat.id), updatedChat.current_key_version);
       setChats((current) => [
         ...current.filter((item) => item.id !== updatedChat.id),
@@ -524,7 +535,7 @@ function App() {
       sessionStorage.setItem(chatKeyStorageKey, serializedPair);
       sessionStorage.removeItem(temporaryKeyStorageKey);
       chatRsaKeysRef.current.set(String(chat.id), chatRsaPair);
-      chatKeysRef.current.set(String(chat.id), aesKey);
+      chatKeysRef.current.set(String(chat.id), new Map([[chat.current_key_version, aesKey]]));
       setChats((current) => [...current, chat]);
       setSelectedChatId(String(chat.id));
       setNewChatName("");
@@ -621,7 +632,8 @@ function App() {
     ) {
       return;
     }
-    const aesKey = await refreshChatKey(selectedChatId);
+    await refreshChatKeys(selectedChatId);
+    const aesKey = getChatKey(selectedChatId);
     if (!aesKey) {
       addEvent("error", "Ключ AES этого чата ещё не расшифрован");
       return;

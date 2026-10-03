@@ -17,6 +17,7 @@ from .schemas import (
     ChatSchema,
     InviteCreateSchema,
     InviteMineSchema,
+    MessageHistoryDataSchema,
     MessageRequestSchema,
     MessageResponseSchema,
     MessageType,
@@ -116,11 +117,25 @@ class ChatService:
     ) -> MessageModel:
         return await self.repo.create_message(message, user)
 
-    async def get_messages(self, chat_id: int, user_id: int) -> list[MessageModel]:
+    async def get_messages(
+        self, chat_id: int, user_id: int
+    ) -> list[MessageHistoryDataSchema]:
         chat = await self.get(chat_id)
         if user_id not in {i.id for i in chat.members}:
             raise ChatPermissionError
-        return await self.repo.get_messages(chat_id)
+        messages = await self.repo.get_messages(chat_id)
+
+        return [
+            MessageHistoryDataSchema(
+                id=i.id,
+                chat_id=i.chat_id,
+                body=i.body,
+                nonce=i.nonce,
+                created_at=i.created_at,
+                key_version=i.chat_key.version,
+            )
+            for i in messages
+        ]
 
     async def keys(
         self, user_id: int, chat_id: int, version: int | None = None
@@ -273,7 +288,11 @@ class ConnectionManager:
         result = await chat_service.create_message(message, user)
         result = {
             "type": MessageType.message,
-            "data": {**vars(result), "client_msg_id": client_msg_id},
+            "data": {
+                **vars(result),
+                "key_version": result.chat_key.version,
+                "client_msg_id": client_msg_id,
+            },
         }
         result = MessageResponseSchema(**result)
         for connection in {self.active_connections.get(i) for i in chat_memebers_id}:

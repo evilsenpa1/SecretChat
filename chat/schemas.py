@@ -81,6 +81,7 @@ class MessageResponseDataSchema(BaseModel):
     body: str
     client_msg_id: str
     nonce: str
+    key_version: int
 
 
 class MessageResponseSchema(BaseModel):
@@ -94,6 +95,7 @@ class MessageHistoryDataSchema(BaseModel):
     body: str
     nonce: str
     created_at: datetime
+    key_version: int
 
 
 class InviteCreateSchema(BaseModel):

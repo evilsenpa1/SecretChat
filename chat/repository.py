@@ -154,7 +154,11 @@ class ChatRepository:
         return result
 
     async def get_messages(self, chat_id) -> list[MessageModel]:
-        messages = select(MessageModel).where(MessageModel.chat_id == chat_id)
+        messages = (
+            select(MessageModel)
+            .where(MessageModel.chat_id == chat_id)
+            .options(selectinload(MessageModel.chat_key))
+        )
 
         messages = await self.session.execute(messages)
 
