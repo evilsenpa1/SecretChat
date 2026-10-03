@@ -1,5 +1,7 @@
 from fastapi import APIRouter, Depends, Response, status
 
+from core.dependencies import get_current_user_id
+
 from .schemas import LoginRequestSchema, UserResponseSchema
 from .services import UserService, get_user_service
 
@@ -13,6 +15,15 @@ async def create(
 
     await service.create(data)
     return {"result": "ok"}
+
+
+@router.get("/user/me", response_model=UserResponseSchema)
+async def profile(
+    service: UserService = Depends(get_user_service),
+    user_id: int = Depends(get_current_user_id),
+):
+    user = await service.get(user_id)
+    return user
 
 
 @router.get("/user/{id}", response_model=UserResponseSchema)
