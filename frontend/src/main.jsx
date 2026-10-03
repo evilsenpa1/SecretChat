@@ -47,6 +47,7 @@ function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(() => Boolean(localStorage.getItem("secret-chat-user")));
   const [chats, setChats] = useState([]);
   const [selectedChatId, setSelectedChatId] = useState("");
+  const [deletingChatId, setDeletingChatId] = useState("");
   const [chatsLoading, setChatsLoading] = useState(false);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [newChatName, setNewChatName] = useState("");
@@ -548,6 +549,53 @@ function App() {
     }
   };
 
+  const deleteChat = async (chat) => {
+    if (chat.owner?.id !== currentUserId) {
+      setChatStatus("Удалить чат может только его владелец");
+      return;
+    }
+    if (!window.confirm(`Удалить чат «${chat.name}»? Это действие нельзя отменить.`)) return;
+
+    const chatId = String(chat.id);
+    setDeletingChatId(chatId);
+    setChatStatus(`Удаляем чат «${chat.name}»...`);
+    try {
+      const response = await fetch(`${API_URL}/chat/${chat.id}`, {
+        method: "DELETE",
+        headers: { "X-CSRF-TOKEN": getCookie("csrf_access_token") },
+        credentials: "include",
+      });
+      if (!response.ok) {
+        throw new Error(response.status === 403
+          ? "Удалить чат может только его владелец"
+          : "Не удалось удалить чат");
+      }
+
+      const remainingChats = chats.filter((item) => String(item.id) !== chatId);
+      setChats(remainingChats);
+      setEvents((current) => current.filter((event) => event.chatId !== chatId));
+      loadedChatsRef.current.delete(chatId);
+      chatRsaKeysRef.current.delete(chatId);
+      chatKeysRef.current.delete(chatId);
+      chatKeyVersionsRef.current.delete(chatId);
+      const storageKey = getRsaStorageKey(name, chat.id);
+      sessionStorage.removeItem(storageKey);
+      localStorage.removeItem(storageKey);
+
+      if (selectedChatId === chatId) {
+        messagesRequestRef.current += 1;
+        setMessagesLoading(false);
+        setSelectedChatId(String(remainingChats[0]?.id || ""));
+      }
+      setChatStatus(`Чат «${chat.name}» удалён`);
+      addEvent("system", `Удалён чат #${chat.id}: ${chat.name}`);
+    } catch (error) {
+      setChatStatus(error.message);
+    } finally {
+      setDeletingChatId("");
+    }
+  };
+
   const patchChatMetadata = async (event) => {
     event.preventDefault();
     if (!selectedChatId) return;
@@ -758,19 +806,32 @@ function App() {
               const chatId = String(chat.id);
               const messageCount = events.filter((event) => event.chatId === chatId).length;
               return (
-                <button
-                  className={`chat-item ${chatId === selectedChatId ? "active" : ""}`}
-                  key={chat.id}
-                  type="button"
-                  onClick={() => setSelectedChatId(chatId)}
-                >
-                  <span className="chat-item-icon">//</span>
-                  <span className="chat-item-copy">
-                    <strong>{chat.name}</strong>
-                    <small>CHANNEL #{chat.id}</small>
-                  </span>
-                  <span className="chat-item-count">{messageCount}</span>
-                </button>
+                <div className="chat-list-entry" key={chat.id}>
+                  <button
+                    className={`chat-item ${chatId === selectedChatId ? "active" : ""}`}
+                    type="button"
+                    onClick={() => setSelectedChatId(chatId)}
+                  >
+                    <span className="chat-item-icon">//</span>
+                    <span className="chat-item-copy">
+                      <strong>{chat.name}</strong>
+                      <small>CHANNEL #{chat.id}</small>
+                    </span>
+                    <span className="chat-item-count">{messageCount}</span>
+                  </button>
+                  {chat.owner?.id === currentUserId && (
+                    <button
+                      className="chat-delete-button"
+                      type="button"
+                      onClick={() => deleteChat(chat)}
+                      disabled={Boolean(deletingChatId)}
+                      aria-label={`Удалить чат ${chat.name}`}
+                      title="Удалить чат"
+                    >
+                      Удалить
+                    </button>
+                  )}
+                </div>
               );
             })}
           </div>

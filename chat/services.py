@@ -106,7 +106,7 @@ class ChatService:
 
     async def delete(self, chat_id: int, user_id: int):
         user = await self.user_service.get(user_id)
-        chat = await self.get(chat_id)
+        chat = await self.repo.get(chat_id)
         if user.id != chat.owner.id:
             raise ChatPermissionError
 
