@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Iterable
 
 from fastapi import Depends
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
@@ -22,6 +22,7 @@ from .schemas import (
     AddMembersSchema,
     ChatCreateSchema,
     ChatPatchSchema,
+    DeleteMembersSchema,
     MessageRequestSchema,
 )
 
@@ -217,6 +218,47 @@ class ChatRepository:
                     chat_key_id=chat_key.id,
                 )
             )
+        await self.session.commit()
+        await self.session.refresh(chat, attribute_names=["owner", "members"])
+        return chat
+
+    async def delete_members(
+        self,
+        delete_member_models: Iterable[UserModel],
+        chat: ChatModel,
+        data: DeleteMembersSchema,
+        data_member_ids: Iterable[int],
+    ):
+
+        await self.session.execute(
+            delete(ChatUserAssociation)
+            .where(ChatUserAssociation.chat_id == chat.id)
+            .where(ChatUserAssociation.user_id.in_(data_member_ids))
+        )
+
+        chat_key_ids = select(ChatKeyModel.id).where(ChatKeyModel.chat_id == chat.id)
+
+        await self.session.execute(
+            delete(ChatKeyRecipient)
+            .where(ChatKeyRecipient.chat_key_id.in_(chat_key_ids))
+            .where(ChatKeyRecipient.user_id.in_(data_member_ids))
+        )
+
+        chat_key = ChatKeyModel(
+            chat_id=chat.id, version=data.new_version, created_at=datetime.now()
+        )
+        self.session.add(chat_key)
+        await self.session.flush()
+
+        for k in data.wrapped_keys:
+            self.session.add(
+                ChatKeyRecipient(
+                    user_id=k.user_id,
+                    encrypted_key=k.encrypted_key,
+                    chat_key_id=chat_key.id,
+                )
+            )
+
         await self.session.commit()
         await self.session.refresh(chat, attribute_names=["owner", "members"])
         return chat

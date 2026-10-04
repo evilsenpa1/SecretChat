@@ -15,6 +15,7 @@ from .schemas import (
     ChatMemberSchema,
     ChatPatchSchema,
     ChatSchema,
+    DeleteMembersSchema,
     InviteCreateSchema,
     InviteMineSchema,
     MessageHistoryDataSchema,
@@ -183,25 +184,46 @@ class ChatService:
             current_key_version=key_version[chat.id],
         )
 
-    # async def delete_members(
-    #     self, user_id: int, chat_id: int, data: DeleteMembersSchema
-    # ):
-    #     user = await self.user_service.get(user_id)
-    #     chat = await self.repo.get(chat_id)
-    #     if user.id != chat.owner.id:
-    #         raise ChatPermissionError
+    async def delete_members(
+        self, user_id: int, chat_id: int, data: DeleteMembersSchema
+    ):
+        user = await self.user_service.get(user_id)
+        chat = await self.repo.get(chat_id)
+        if user.id != chat.owner.id:
+            raise ChatPermissionError
 
-    #     key_version = await self.repo.get_current_key_version([chat.id])
-    #     members_exist = {i.user_id for i in chat.members}
-    #     data_member_ids = set(data.member_ids)
-    #     if key_version[chat.id] + 1 != data.new_version or not data_member_ids.issubset(
-    #         members_exist
-    #     ):
-    #         raise ChatIntegrityError
+        key_version = await self.repo.get_current_key_version([chat.id])
+        members_exist = {i.user_id for i in chat.members}
+        delete_member_models = await self.user_service.get_many(
+            list(set(data.member_ids))
+        )
+        data_member_ids = set(data.member_ids)
+        if key_version[chat.id] + 1 != data.new_version or not data_member_ids.issubset(
+            members_exist
+        ):
+            raise ChatIntegrityError
 
-    #     chat = await self.repo.add_members(
-    #         new_member_models=new_member_models, chat=chat, data=data
-    #     )
+        chat = await self.repo.delete_members(
+            delete_member_models=delete_member_models,
+            chat=chat,
+            data=data,
+            data_member_ids=data_member_ids,
+        )
+
+        owner = UserResponseSchema(id=chat.owner.id, name=chat.owner.name)
+        members = [
+            ChatMemberSchema(id=i.user.id, name=i.user.name, public_key=i.public_key)
+            for i in chat.members
+        ]
+
+        key_version = await self.repo.get_current_key_version([chat.id])
+        return ChatSchema(
+            id=chat.id,
+            name=chat.name,
+            owner=owner,
+            members=members,
+            current_key_version=key_version[chat.id],
+        )
 
     async def invite_user(self, chat_id: int, data: InviteCreateSchema, owner_id: int):
         user = await self.user_service.get(owner_id)

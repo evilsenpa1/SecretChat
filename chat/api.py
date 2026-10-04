@@ -20,6 +20,7 @@ from .schemas import (
     ChatKeyMineSchema,
     ChatPatchSchema,
     ChatSchema,
+    DeleteMembersSchema,
     InviteCreateSchema,
     InviteMineSchema,
     MessageHistoryDataSchema,
@@ -168,16 +169,17 @@ async def version_key(
 #     return await chat_service.add_members(chat_id=chat_id, user_id=user_id, data=data)
 
 
-# @router.delete("/chat/{chat_id}/members", response_model=ChatSchema)
-# async def members_delete(
-#     data: AddMembersSchema,
-#     chat_id: int,
-#     user_id: int = Depends(get_current_user_id),
-#     chat_service: ChatService = Depends(get_chat_service),
-# ):
-#     return await chat_service.delete_members(
-#         chat_id=chat_id, user_id=user_id, data=data
-#     )
+@router.delete("/chat/{chat_id}/members", response_model=ChatSchema)
+async def members_delete(
+    data: DeleteMembersSchema,
+    chat_id: int,
+    member_id: int,
+    user_id: int = Depends(get_current_user_id),
+    chat_service: ChatService = Depends(get_chat_service),
+):
+    return await chat_service.delete_members(
+        chat_id=chat_id, user_id=user_id, data=data
+    )
 
 
 @router.get("/chat/invites/me", response_model=list[InviteMineSchema])
