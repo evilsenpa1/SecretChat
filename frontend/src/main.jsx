@@ -7,8 +7,9 @@ import {
   encryptMessage,
   exportPublicKey,
   getChatKeyPair,
-  getRsaStorageKey,
   importPublicKey,
+  moveChatKeyPair,
+  deleteChatKeyPair,
   wrapChatKey,
 } from "./chatCrypto.js";
 import "./styles.css";
@@ -32,6 +33,17 @@ function getCookie(name) {
   return cookie ? decodeURIComponent(cookie.slice(name.length + 1)) : "";
 }
 
+function getMessageBody(value) {
+  try {
+    const message = JSON.parse(value);
+    return message?.type === "message" && typeof message.data?.body === "string"
+      ? message.data.body
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 function App() {
   const socketRef = useRef(null);
   const connectAttemptRef = useRef(false);
@@ -40,7 +52,7 @@ function App() {
   const chatKeyVersionsRef = useRef(new Map());
   const messagesRequestRef = useRef(0);
   const loadedChatsRef = useRef(new Set());
-  const [payload, setPayload] = useState("Привет из SecretChat");
+  const [payload, setPayload] = useState("");
   const [name, setName] = useState(() => localStorage.getItem("secret-chat-user") || "");
   const [password, setPassword] = useState("");
   const [authStatus, setAuthStatus] = useState("");
@@ -55,6 +67,7 @@ function App() {
   const [chatMetaName, setChatMetaName] = useState("");
   const [chatMetaOwnerId, setChatMetaOwnerId] = useState("");
   const [newMemberId, setNewMemberId] = useState("");
+  const [deletingMemberId, setDeletingMemberId] = useState("");
   const [currentUserId, setCurrentUserId] = useState(null);
   const [profileLoading, setProfileLoading] = useState(false);
   const [invites, setInvites] = useState([]);
@@ -83,37 +96,59 @@ function App() {
     ...current.slice(-49), { id: crypto.randomUUID(), type, value, time: formatTime(), ...extra },
   ]);
 
-  const refreshChatKeys = async (chatId) => {
+  const clearInMemoryChatState = () => {
+    socketRef.current?.close();
+    socketRef.current = null;
+    connectAttemptRef.current = false;
+    chatRsaKeysRef.current.clear();
+    chatKeysRef.current.clear();
+    chatKeyVersionsRef.current.clear();
+    loadedChatsRef.current.clear();
+    messagesRequestRef.current += 1;
+    setCurrentUserId(null);
+    setChats([]);
+    setSelectedChatId("");
+    setEvents([]);
+    setMessagesLoading(false);
+    setStatus("offline");
+  };
+
+  const refreshChatKeys = async (chatId, expectedVersion) => {
     const normalizedChatId = String(chatId);
     const currentKeys = chatKeysRef.current.get(normalizedChatId) || new Map();
     const rsaPair = chatRsaKeysRef.current.get(normalizedChatId);
-    if (!rsaPair) return currentKeys;
+    if (!rsaPair) throw new Error("Приватный RSA-ключ этого чата не загружен");
 
-    try {
-      const response = await fetch(`${API_URL}/chat/${chatId}/keys`, { credentials: "include" });
-      if (!response.ok) return currentKeys;
-      const keys = await response.json();
-      const decryptedKeys = await Promise.all(keys.map(async (key) => {
-        if (currentKeys.has(key.version)) return [key.version, currentKeys.get(key.version)];
-        try {
-          return [key.version, await decryptChatKey(rsaPair.privateKey, key.encrypted_key)];
-        } catch {
-          return null;
-        }
-      }));
-      const updatedKeys = new Map(currentKeys);
-      decryptedKeys.forEach((entry) => {
-        if (entry) updatedKeys.set(entry[0], entry[1]);
-      });
-      const latestVersion = Math.max(...updatedKeys.keys());
-      if (Number.isFinite(latestVersion)) {
-        chatKeyVersionsRef.current.set(normalizedChatId, latestVersion);
-      }
-      chatKeysRef.current.set(normalizedChatId, updatedKeys);
-      return updatedKeys;
-    } catch {
-      return currentKeys;
+    const response = await fetch(`${API_URL}/chat/${chatId}/keys`, { credentials: "include" });
+    if (!response.ok) {
+      throw new Error(`Не удалось загрузить ключи чата (${response.status})`);
     }
+    const keys = await response.json();
+    const updatedKeys = new Map(currentKeys);
+    let expectedKeyFailed = false;
+    await Promise.all(keys.map(async (key) => {
+      const version = Number(key.version);
+      if (updatedKeys.has(version)) return;
+      try {
+        updatedKeys.set(version, await decryptChatKey(rsaPair.privateKey, key.encrypted_key));
+      } catch {
+        if (version === Number(expectedVersion)) expectedKeyFailed = true;
+      }
+    }));
+
+    const versionToUse = expectedVersion == null
+      ? Math.max(...updatedKeys.keys())
+      : Number(expectedVersion);
+    if (!Number.isFinite(versionToUse) || !updatedKeys.has(versionToUse)) {
+      const reason = expectedKeyFailed
+        ? "Приватный RSA-ключ не соответствует ключу этой версии"
+        : `Для этой учётной записи нет AES-ключа версии ${expectedVersion ?? "чата"}`;
+      throw new Error(`${reason}. Проверьте восстановление RSA-ключа и ротацию ключей.`);
+    }
+
+    chatKeyVersionsRef.current.set(normalizedChatId, versionToUse);
+    chatKeysRef.current.set(normalizedChatId, updatedKeys);
+    return updatedKeys;
   };
 
   const getChatKey = (chatId, version) => {
@@ -123,7 +158,7 @@ function App() {
     if (version != null) return keys.get(Number(version));
 
     const currentVersion = chatKeyVersionsRef.current.get(normalizedChatId);
-    return keys.get(currentVersion) || keys.get(Math.max(...keys.keys()));
+    return currentVersion == null ? undefined : keys.get(currentVersion);
   };
 
   const parseServerMessage = async (rawData) => {
@@ -140,8 +175,12 @@ function App() {
         : null;
       let aesKey = getChatKey(message.data.chat_id, keyVersion);
       if (!aesKey && message.data?.nonce) {
-        await refreshChatKeys(message.data.chat_id);
-        aesKey = getChatKey(message.data.chat_id, keyVersion);
+        try {
+          await refreshChatKeys(message.data.chat_id, keyVersion);
+          aesKey = getChatKey(message.data.chat_id, keyVersion);
+        } catch (error) {
+          addEvent("error", error.message, { chatId: String(message.data.chat_id) });
+        }
       }
       if (aesKey && message.data?.nonce) {
         try {
@@ -285,6 +324,7 @@ function App() {
     try {
       const response = await fetch(`${API_URL}/user/me`, { credentials: "include" });
       if (response.status === 401) {
+        clearInMemoryChatState();
         localStorage.removeItem("secret-chat-user");
         setName("");
         setIsAuthenticated(false);
@@ -313,6 +353,7 @@ function App() {
       const response = await fetch(`${API_URL}/chat`, { credentials: "include" });
       if (!response.ok) {
         if (response.status === 401) {
+          clearInMemoryChatState();
           localStorage.removeItem("secret-chat-user");
           setName("");
           setIsAuthenticated(false);
@@ -323,16 +364,22 @@ function App() {
       }
       const chatList = await response.json();
       setChats(chatList);
+      const keyWarnings = [];
       await Promise.all(chatList.map(async (chat) => {
         try {
-          const ownMember = chat.members?.find((member) => member.name === name);
+          const ownMember = chat.members?.find((member) => member.id === currentUserId)
+            || chat.members?.find((member) => member.name === name);
+          if (!ownMember?.public_key) {
+            throw new Error("В списке участников нет вашего публичного ключа");
+          }
           const rsaPair = await getChatKeyPair(chat.id, name, ownMember?.public_key);
           chatRsaKeysRef.current.set(String(chat.id), rsaPair);
-          await refreshChatKeys(chat.id);
-        } catch {
-          // A chat can be listed before its key is available.
+          await refreshChatKeys(chat.id, chat.current_key_version);
+        } catch (error) {
+          keyWarnings.push(`«${chat.name}»: ${error.message}`);
         }
       }));
+      if (keyWarnings.length) setChatStatus(keyWarnings.join("\n"));
       setSelectedChatId((current) => current || String(chatList[0]?.id || ""));
       return true;
     } catch (error) {
@@ -398,6 +445,69 @@ function App() {
       setInviteStatus(error.message);
     } finally {
       setInviteSubmitting(false);
+    }
+  };
+
+  const deleteMember = async (member) => {
+    if (!selectedChat || selectedChat.owner?.id !== currentUserId) {
+      setChatStatus("Удалять участников может только владелец чата");
+      return;
+    }
+    if (member.id === selectedChat.owner.id) return;
+    if (!window.confirm(`Удалить ${member.name} из чата «${selectedChat.name}»?`)) return;
+
+    setDeletingMemberId(String(member.id));
+    setChatStatus(`Обновляем ключ чата «${selectedChat.name}»...`);
+    try {
+      const remainingMembers = selectedChat.members.filter((item) => item.id !== member.id);
+      const ownerMember = remainingMembers.find((item) => item.id === currentUserId);
+      if (!ownerMember) throw new Error("В чате должен остаться его владелец");
+
+      const ownerPublicKey = await importPublicKey(ownerMember.public_key);
+      const { aesKey, encryptedKey } = await createChatKey(ownerPublicKey);
+      const wrappedKeys = await Promise.all(remainingMembers.map(async (item) => ({
+        user_id: item.id,
+        encrypted_key: item.id === currentUserId
+          ? encryptedKey
+          : await wrapChatKey(aesKey, await importPublicKey(item.public_key)),
+      })));
+      const response = await fetch(
+        `${API_URL}/chat/${selectedChat.id}/members?member_id=${member.id}`,
+        {
+          method: "DELETE",
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRF-TOKEN": getCookie("csrf_access_token"),
+          },
+          credentials: "include",
+          body: JSON.stringify({
+            member_ids: [member.id],
+            new_version: selectedChat.current_key_version + 1,
+            wrapped_keys: wrappedKeys,
+          }),
+        },
+      );
+      if (!response.ok) {
+        throw new Error(response.status === 403
+          ? "Удалять участников может только владелец чата"
+          : "Не удалось удалить участника");
+      }
+
+      const updatedChat = await response.json();
+      const normalizedChatId = String(updatedChat.id);
+      const updatedKeys = new Map(chatKeysRef.current.get(normalizedChatId) || []);
+      updatedKeys.set(updatedChat.current_key_version, aesKey);
+      chatKeysRef.current.set(normalizedChatId, updatedKeys);
+      chatKeyVersionsRef.current.set(normalizedChatId, updatedChat.current_key_version);
+      setChats((current) => current.map((item) => item.id === updatedChat.id ? updatedChat : item));
+      setChatStatus(`${member.name} удалён из чата; ключ обновлён`);
+      addEvent("system", `${member.name} удалён из чата #${updatedChat.id}`, {
+        chatId: normalizedChatId,
+      });
+    } catch (error) {
+      setChatStatus(error.message);
+    } finally {
+      setDeletingMemberId("");
     }
   };
 
@@ -503,7 +613,6 @@ function App() {
     if (!chatName || typeof crypto?.subtle === "undefined") return;
 
     const temporaryChatId = `temp-${Date.now()}`;
-    const temporaryKeyStorageKey = getRsaStorageKey(name, temporaryChatId);
 
     setChatStatus("Создаём...");
     try {
@@ -527,14 +636,7 @@ function App() {
         throw new Error(response.status === 401 ? "Сессия истекла" : "Не удалось создать чат");
       }
       const chat = await response.json();
-      const storedPair = {
-        publicKey: await crypto.subtle.exportKey("jwk", chatRsaPair.publicKey),
-        privateKey: await crypto.subtle.exportKey("jwk", chatRsaPair.privateKey),
-      };
-      const serializedPair = JSON.stringify(storedPair);
-      const chatKeyStorageKey = getRsaStorageKey(name, chat.id);
-      sessionStorage.setItem(chatKeyStorageKey, serializedPair);
-      sessionStorage.removeItem(temporaryKeyStorageKey);
+      await moveChatKeyPair(temporaryChatId, chat.id, name);
       chatRsaKeysRef.current.set(String(chat.id), chatRsaPair);
       chatKeysRef.current.set(String(chat.id), new Map([[chat.current_key_version, aesKey]]));
       setChats((current) => [...current, chat]);
@@ -543,7 +645,11 @@ function App() {
       setChatStatus(`Чат «${chat.name}» создан`);
       addEvent("system", `Создан чат #${chat.id}: ${chat.name}`);
     } catch (error) {
-      sessionStorage.removeItem(temporaryKeyStorageKey);
+      try {
+        await deleteChatKeyPair(temporaryChatId, name);
+      } catch {
+        // Keep the original key if IndexedDB cleanup is unavailable.
+      }
       setChatStatus(error.message);
       addEvent("error", error.message);
     }
@@ -578,9 +684,7 @@ function App() {
       chatRsaKeysRef.current.delete(chatId);
       chatKeysRef.current.delete(chatId);
       chatKeyVersionsRef.current.delete(chatId);
-      const storageKey = getRsaStorageKey(name, chat.id);
-      sessionStorage.removeItem(storageKey);
-      localStorage.removeItem(storageKey);
+      await deleteChatKeyPair(chat.id, name);
 
       if (selectedChatId === chatId) {
         messagesRequestRef.current += 1;
@@ -628,6 +732,7 @@ function App() {
 
   const login = async (event) => {
     event.preventDefault();
+    clearInMemoryChatState();
     setAuthStatus("Входим...");
     try {
       const response = await fetch(`${API_URL}/auth`, {
@@ -658,12 +763,18 @@ function App() {
     setStatus("connecting");
     addEvent("system", `Подключение к ${DEFAULT_URL}`);
     socket.onopen = () => {
+      if (socketRef.current !== socket) return;
       setStatus("online");
       addEvent("system", "Соединение установлено");
     };
-    socket.onmessage = ({ data }) => parseServerMessage(data);
-    socket.onerror = () => addEvent("error", "Ошибка WebSocket");
+    socket.onmessage = ({ data }) => {
+      if (socketRef.current === socket) parseServerMessage(data);
+    };
+    socket.onerror = () => {
+      if (socketRef.current === socket) addEvent("error", "Ошибка WebSocket");
+    };
     socket.onclose = ({ code, reason }) => {
+      if (socketRef.current !== socket) return;
       connectAttemptRef.current = false;
       setStatus("offline");
       socketRef.current = null;
@@ -680,14 +791,14 @@ function App() {
     ) {
       return;
     }
-    await refreshChatKeys(selectedChatId);
-    const aesKey = getChatKey(selectedChatId);
-    if (!aesKey) {
-      addEvent("error", "Ключ AES этого чата ещё не расшифрован");
-      return;
-    }
-    const clientMsgId = crypto.randomUUID();
     try {
+      const expectedVersion = selectedChat?.current_key_version;
+      if (expectedVersion == null) throw new Error("Не удалось определить версию AES-ключа чата");
+      await refreshChatKeys(selectedChatId, expectedVersion);
+      const aesKey = getChatKey(selectedChatId, expectedVersion);
+      if (!aesKey) throw new Error(`AES-ключ версии ${expectedVersion} недоступен`);
+
+      const clientMsgId = crypto.randomUUID();
       const { body, nonce } = await encryptMessage(aesKey, payload);
       if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
         return;
@@ -697,13 +808,14 @@ function App() {
         data: { chat_id: Number(selectedChatId), client_msg_id: clientMsgId, body, nonce },
       };
       socketRef.current.send(JSON.stringify(message));
+      setPayload("");
       addEvent("out", JSON.stringify({ ...message, data: { ...message.data, body: payload } }, null, 2), {
         clientMsgId,
         pending: true,
         chatId: selectedChatId,
       });
     } catch (error) {
-      addEvent("error", error.message);
+      addEvent("error", error.message, { chatId: selectedChatId });
     }
   };
 
@@ -787,15 +899,14 @@ function App() {
         </div>
       </section>
       <section className="workspace">
-        <aside className="panel controls-panel">
-          <div className="panel-heading">
+        <aside className="panel chat-sidebar">
+          <div className="panel-heading sidebar-heading">
             <div>
               <span className="section-number">01</span>
-              <h2>Чат</h2>
+              <h2>Ваши чаты</h2>
             </div>
-            <span className="lock">AUTHENTICATED</span>
+            <span className="lock">{chats.length}</span>
           </div>
-          <label className="field-label">Ваши чаты</label>
           <div className="chat-list" aria-label="Список чатов">
             {!chats.length && (
               <div className="chat-list-empty">
@@ -815,7 +926,7 @@ function App() {
                     <span className="chat-item-icon">//</span>
                     <span className="chat-item-copy">
                       <strong>{chat.name}</strong>
-                      <small>CHANNEL #{chat.id}</small>
+                      <small>#{chat.id} · {chat.members?.length || 0} участников</small>
                     </span>
                     <span className="chat-item-count">{messageCount}</span>
                   </button>
@@ -828,7 +939,7 @@ function App() {
                       aria-label={`Удалить чат ${chat.name}`}
                       title="Удалить чат"
                     >
-                      Удалить
+                      ×
                     </button>
                   )}
                 </div>
@@ -836,7 +947,7 @@ function App() {
             })}
           </div>
           <form className="create-chat-form" onSubmit={createChat}>
-            <label className="field-label" htmlFor="new-chat-name">Новый чат</label>
+            <label className="field-label" htmlFor="new-chat-name">Создать чат</label>
             <div className="create-chat-row">
               <input
                 id="new-chat-name"
@@ -854,13 +965,9 @@ function App() {
               </button>
             </div>
             <p className="crypto-status">{cryptoStatus}</p>
-            {chatStatus && <p className="auth-status">{chatStatus}</p>}
           </form>
-          <div className="panel-heading management-heading">
-            <div>
-              <span className="section-number">02</span>
-              <h2>Приглашения</h2>
-            </div>
+          <div className="inbox-heading">
+            <h3>Приглашения</h3>
             <button
               className="text-button"
               type="button"
@@ -907,132 +1014,196 @@ function App() {
             <p className="invite-note">Не удалось загрузить ID аккаунта. Обновите страницу или войдите снова.</p>
           )}
           {inviteStatus && <p className="invite-status" role="status">{inviteStatus}</p>}
-          <div className="panel-heading management-heading">
-            <div>
-              <span className="section-number">02A</span>
-              <h2>Состав чата</h2>
-            </div>
-            <span className="lock">OWNER TOOLS</span>
-          </div>
-          <form className="management-form" onSubmit={patchChatMetadata}>
-            <label className="field-label" htmlFor="chat-meta-name">Новое имя</label>
-            <input
-              id="chat-meta-name"
-              value={chatMetaName}
-              onChange={(event) => setChatMetaName(event.target.value)}
-              placeholder={selectedChat?.name || "Без изменения"}
-            />
-            <label className="field-label" htmlFor="chat-meta-owner">
-              Новый owner_id
-            </label>
-            <input
-              id="chat-meta-owner"
-              type="number"
-              min="1"
-              value={chatMetaOwnerId}
-              onChange={(event) => setChatMetaOwnerId(event.target.value)}
-              placeholder={String(selectedChat?.owner?.id || "Без изменения")}
-            />
-            <button
-              className="secondary-button"
-              type="submit"
-              disabled={!selectedChatId || (!chatMetaName.trim() && !chatMetaOwnerId)}
-            >
-              PATCH метаданных
-            </button>
-          </form>
-          {selectedChat?.owner?.name === name && (
-            <form className="management-form" onSubmit={sendInvite}>
-              <label className="field-label" htmlFor="new-member-id">
-                ID пользователя для приглашения
-              </label>
-              <div className="create-chat-row">
-                <input
-                  id="new-member-id"
-                  type="number"
-                  min="1"
-                  value={newMemberId}
-                  onChange={(event) => setNewMemberId(event.target.value)}
-                  placeholder="ID пользователя"
-                  required
-                />
-                <button
-                  className="secondary-button"
-                  type="submit"
-                  disabled={!selectedChatId || !newMemberId || inviteSubmitting}
-                >
-                  {inviteSubmitting ? "Отправка..." : "Пригласить"}
-                </button>
-              </div>
-              {inviteStatus && <p className="invite-status" role="status">{inviteStatus}</p>}
-            </form>
-          )}
-          <div className="panel-heading message-heading">
-            <div>
-              <span className="section-number">03</span>
-              <h2>Отправка</h2>
-            </div>
-          </div>
-          <div className="active-chat-banner">
-            <span className="active-chat-mark" aria-hidden="true">//</span>
-            <span>Сейчас в чате <strong>{selectedChat?.name || "не выбран"}</strong></span>
-          </div>
-          <label className="field-label" htmlFor="message">Сообщение для выбранного чата</label>
-          <textarea
-            id="message"
-            value={payload}
-            onChange={(event) => setPayload(event.target.value)}
-            rows="5"
-          />
-          <button className="send-button" onClick={sendMessage} disabled={!isConnected || !selectedChatId}>
-            Отправить сообщение <span>→</span>
-          </button>
-          <p className="mode-note">
-            Сообщение отправляется с client_msg_id и заменяется ответом сервера после сохранения.
-          </p>
         </aside>
-        <section className="panel log-panel">
-          <div className="panel-heading log-heading">
-            <div>
-              <span className="section-number">04</span>
-              <h2>{selectedChat?.name || "Журнал событий"}</h2>
-            </div>
-            <button
-              className="clear-button"
-              onClick={() => setEvents((current) => current.filter(
-                (event) => event.chatId != null && event.chatId !== selectedChatId,
-              ))}
-              disabled={!visibleEvents.length || messagesLoading}
-            >
-              Очистить чат
-            </button>
-          </div>
-          <div className="event-list">
-            {messagesLoading && (
-              <div className="empty-state">
-                <div className="signal-art" aria-hidden="true"><span>SYNCING</span></div>
-                <strong>Загрузка канала</strong>
-                <span>Получаем сохранённые сообщения.</span>
-              </div>
-            )}
-            {!messagesLoading && !visibleEvents.length && (
-              <div className="empty-state">
-                <div className="signal-art" aria-hidden="true"><span>NO SIGNAL</span></div>
-                <strong>Канал чист</strong>
-                <span>Выберите чат и отправьте первый кадр.</span>
-              </div>
-            )}
-            {!messagesLoading && visibleEvents.map((event) => (
-              <article className={`event ${event.type}`} key={event.id}>
-                <div className="event-meta">
-                  <span>{event.type === "in" ? "IN" : event.type === "out" ? "OUT" : event.type.toUpperCase()}</span>
-                  <time>{event.time}</time>
+
+        <div className="chat-column">
+          <section className="panel log-panel" aria-label="Сообщения чата">
+            <div className="chat-toolbar">
+              <div className="chat-title-group">
+                <span className="active-chat-mark" aria-hidden="true">//</span>
+                <div>
+                  <h2>{selectedChat?.name || "Выберите чат"}</h2>
+                  <p>{selectedChat ? `Чат #${selectedChat.id} · ${selectedChat.members?.length || 0} участников` : "История сообщений"}</p>
                 </div>
-                <pre>{event.value}</pre>
-              </article>
+              </div>
+              <button
+                className="clear-button"
+                type="button"
+                onClick={() => setEvents((current) => current.filter(
+                  (event) => event.chatId != null && event.chatId !== selectedChatId,
+                ))}
+                disabled={!visibleEvents.length || messagesLoading}
+              >
+                Очистить
+              </button>
+            </div>
+            <div className="event-list">
+              {messagesLoading && (
+                <div className="empty-state">
+                  <div className="signal-art" aria-hidden="true"><span>SYNCING</span></div>
+                  <strong>Загрузка сообщений</strong>
+                </div>
+              )}
+              {!messagesLoading && !visibleEvents.length && (
+                <div className="empty-state">
+                  <div className="signal-art" aria-hidden="true"><span>NO SIGNAL</span></div>
+                  <strong>Пока тихо</strong>
+                  <span>Отправьте первое сообщение.</span>
+                </div>
+              )}
+              {!messagesLoading && visibleEvents.map((event) => {
+                const messageBody = getMessageBody(event.value);
+                return (
+                  <article
+                    className={`event ${event.type}${messageBody !== null ? " message-event" : ""}`}
+                    key={event.id}
+                  >
+                    <div className="event-meta">
+                      <span>{event.type === "in" ? "ВХОДЯЩЕЕ" : event.type === "out" ? "ВЫ" : event.type.toUpperCase()}</span>
+                      <time>{event.time}</time>
+                    </div>
+                    {messageBody !== null ? (
+                      <>
+                        <p className="message-body">{messageBody}</p>
+                        <details className="event-payload">
+                          <summary>Данные пакета</summary>
+                          <pre>{event.value}</pre>
+                        </details>
+                      </>
+                    ) : (
+                      <pre>{event.value}</pre>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+
+          <form
+            className="panel composer-panel"
+            onSubmit={(event) => {
+              event.preventDefault();
+              sendMessage();
+            }}
+          >
+            <textarea
+              id="message"
+              aria-label="Сообщение"
+              placeholder={selectedChatId ? "Напишите сообщение..." : "Сначала выберите чат"}
+              value={payload}
+              onChange={(event) => setPayload(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
+                event.preventDefault();
+                if (isConnected && selectedChatId && payload.trim()) sendMessage();
+              }}
+              rows="2"
+              disabled={!selectedChatId}
+            />
+            <div className="composer-actions">
+              <span className={`composer-connection ${isConnected ? "online" : ""}`}>
+                {isConnected ? "Соединение установлено" : "Нет соединения"}
+              </span>
+              <button className="send-button" type="submit" disabled={!isConnected || !selectedChatId || !payload.trim()}>
+                Отправить <span>↑</span>
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <aside className="panel details-panel">
+          <div className="panel-heading sidebar-heading">
+            <div>
+              <span className="section-number">02</span>
+              <h2>Участники</h2>
+            </div>
+            <span className="lock">{selectedChat?.members?.length || 0}</span>
+          </div>
+          <div className="member-list" aria-label="Участники выбранного чата">
+            {!selectedChat?.members?.length && (
+              <p className="invite-empty">Выберите чат, чтобы увидеть участников</p>
+            )}
+            {selectedChat?.members?.map((member) => (
+              <div className="member-item" key={member.id}>
+                <span className="member-avatar" aria-hidden="true">{member.name.slice(0, 1).toUpperCase()}</span>
+                <div className="invite-copy">
+                  <strong>{member.name}</strong>
+                  <small>{member.id === selectedChat.owner?.id ? "ВЛАДЕЛЕЦ" : `ID ${member.id}`}</small>
+                </div>
+                {selectedChat.owner?.id === currentUserId && member.id !== currentUserId && (
+                  <button
+                    className="text-button danger-button member-remove"
+                    type="button"
+                    onClick={() => deleteMember(member)}
+                    disabled={Boolean(deletingMemberId)}
+                    aria-label={`Удалить ${member.name} из чата`}
+                    title="Удалить участника"
+                  >
+                    {deletingMemberId === String(member.id) ? "..." : "×"}
+                  </button>
+                )}
+              </div>
             ))}
           </div>
-        </section>
+
+          {selectedChat?.owner?.id === currentUserId && (
+            <div className="owner-tools">
+              <details className="management-disclosure">
+                <summary>Добавить участника</summary>
+                <form className="management-form" onSubmit={sendInvite}>
+                  <label className="field-label" htmlFor="new-member-id">ID пользователя</label>
+                  <input
+                    id="new-member-id"
+                    type="number"
+                    min="1"
+                    value={newMemberId}
+                    onChange={(event) => setNewMemberId(event.target.value)}
+                    placeholder="Например, 12"
+                    required
+                  />
+                  <button
+                    className="secondary-button"
+                    type="submit"
+                    disabled={!newMemberId || inviteSubmitting}
+                  >
+                    {inviteSubmitting ? "Отправка..." : "Отправить приглашение"}
+                  </button>
+                </form>
+              </details>
+              <details className="management-disclosure">
+                <summary>Настройки чата</summary>
+                <form className="management-form" onSubmit={patchChatMetadata}>
+                  <label className="field-label" htmlFor="chat-meta-name">Название</label>
+                  <input
+                    id="chat-meta-name"
+                    value={chatMetaName}
+                    onChange={(event) => setChatMetaName(event.target.value)}
+                    placeholder={selectedChat.name}
+                    disabled={!selectedChatId}
+                  />
+                  <label className="field-label" htmlFor="chat-meta-owner">Новый ID владельца</label>
+                  <input
+                    id="chat-meta-owner"
+                    type="number"
+                    min="1"
+                    value={chatMetaOwnerId}
+                    onChange={(event) => setChatMetaOwnerId(event.target.value)}
+                    placeholder={String(selectedChat.owner?.id || "ID пользователя")}
+                    disabled={!selectedChatId}
+                  />
+                  <button
+                    className="secondary-button"
+                    type="submit"
+                    disabled={!selectedChatId || (!chatMetaName.trim() && !chatMetaOwnerId)}
+                  >
+                    Сохранить
+                  </button>
+                </form>
+              </details>
+            </div>
+          )}
+          {chatStatus && <p className="invite-status" role="status">{chatStatus}</p>}
+        </aside>
       </section>
       <footer><span>SECRETCHAT</span><span>FASTAPI / REACT / WEBSOCKET</span></footer>
     </main>
