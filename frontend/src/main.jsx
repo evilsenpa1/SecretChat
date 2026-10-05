@@ -4,12 +4,12 @@ import {
   createChatKey,
   decryptChatKey,
   decryptMessage,
+  deleteChatKeyPair,
   encryptMessage,
   exportPublicKey,
   getChatKeyPair,
   importPublicKey,
   moveChatKeyPair,
-  deleteChatKeyPair,
   wrapChatKey,
 } from "./chatCrypto.js";
 import "./styles.css";
@@ -31,6 +31,36 @@ function getCookie(name) {
     .split("; ")
     .find((entry) => entry.startsWith(`${name}=`));
   return cookie ? decodeURIComponent(cookie.slice(name.length + 1)) : "";
+}
+
+let refreshRequest;
+
+async function refreshSession() {
+  if (!refreshRequest) {
+    refreshRequest = fetch(`${API_URL}/auth/refresh`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "X-CSRF-TOKEN": getCookie("csrf_refresh_token") },
+    })
+      .then((response) => response.ok)
+      .catch(() => false)
+      .finally(() => {
+        refreshRequest = null;
+      });
+  }
+  return refreshRequest;
+}
+
+async function apiFetch(url, options = {}) {
+  const requestOptions = { ...options, credentials: "include" };
+  const response = await fetch(url, requestOptions);
+  if (response.status !== 401 || !(await refreshSession())) return response;
+
+  const headers = new Headers(requestOptions.headers);
+  if (headers.has("X-CSRF-TOKEN")) {
+    headers.set("X-CSRF-TOKEN", getCookie("csrf_access_token"));
+  }
+  return fetch(url, { ...requestOptions, headers });
 }
 
 function getMessageBody(value) {
@@ -119,7 +149,7 @@ function App() {
     const rsaPair = chatRsaKeysRef.current.get(normalizedChatId);
     if (!rsaPair) throw new Error("Приватный RSA-ключ этого чата не загружен");
 
-    const response = await fetch(`${API_URL}/chat/${chatId}/keys`, { credentials: "include" });
+    const response = await apiFetch(`${API_URL}/chat/${chatId}/keys`);
     if (!response.ok) {
       throw new Error(`Не удалось загрузить ключи чата (${response.status})`);
     }
@@ -247,7 +277,7 @@ function App() {
     messagesRequestRef.current = requestId;
     setMessagesLoading(true);
     try {
-      const response = await fetch(`${API_URL}/chat/${chatId}/messages`, {
+      const response = await apiFetch(`${API_URL}/chat/${chatId}/messages`, {
         credentials: "include",
       });
       if (!response.ok) {
@@ -322,7 +352,7 @@ function App() {
   const loadProfile = async () => {
     setProfileLoading(true);
     try {
-      const response = await fetch(`${API_URL}/user/me`, { credentials: "include" });
+      const response = await apiFetch(`${API_URL}/user/me`);
       if (response.status === 401) {
         clearInMemoryChatState();
         localStorage.removeItem("secret-chat-user");
@@ -350,7 +380,7 @@ function App() {
   const loadChats = async () => {
     setChatsLoading(true);
     try {
-      const response = await fetch(`${API_URL}/chat`, { credentials: "include" });
+      const response = await apiFetch(`${API_URL}/chat`);
       if (!response.ok) {
         if (response.status === 401) {
           clearInMemoryChatState();
@@ -394,7 +424,7 @@ function App() {
   const loadInvites = async () => {
     setInvitesLoading(true);
     try {
-      const response = await fetch(`${API_URL}/chat/invites/me`, { credentials: "include" });
+      const response = await apiFetch(`${API_URL}/chat/invites/me`);
       if (!response.ok) throw new Error("Не удалось загрузить приглашения");
       setInvites(await response.json());
     } catch (error) {
@@ -425,7 +455,7 @@ function App() {
     setInviteSubmitting(true);
     setInviteStatus("Отправляем приглашение...");
     try {
-      const response = await fetch(`${API_URL}/chat/${selectedChat.id}/invites/`, {
+      const response = await apiFetch(`${API_URL}/chat/${selectedChat.id}/invites/`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -471,7 +501,7 @@ function App() {
           ? encryptedKey
           : await wrapChatKey(aesKey, await importPublicKey(item.public_key)),
       })));
-      const response = await fetch(
+      const response = await apiFetch(
         `${API_URL}/chat/${selectedChat.id}/members?member_id=${member.id}`,
         {
           method: "DELETE",
@@ -520,7 +550,7 @@ function App() {
     setInviteActionId(String(invite.id));
     setInviteStatus("Подготавливаем ключи чата...");
     try {
-      const chatResponse = await fetch(`${API_URL}/chat/${invite.chat_id}`, {
+      const chatResponse = await apiFetch(`${API_URL}/chat/${invite.chat_id}`, {
         credentials: "include",
       });
       if (!chatResponse.ok) throw new Error("Не удалось загрузить данные чата");
@@ -552,7 +582,7 @@ function App() {
         encrypted_key: await wrapChatKey(aesKey, rsaPair.publicKey),
       });
 
-      const response = await fetch(`${API_URL}/chat/invites/${invite.id}/accept`, {
+      const response = await apiFetch(`${API_URL}/chat/invites/${invite.id}/accept`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -592,7 +622,7 @@ function App() {
     setInviteActionId(String(invite.id));
     setInviteStatus("Отклоняем приглашение...");
     try {
-      const response = await fetch(`${API_URL}/chat/invites/${invite.id}/decline/`, {
+      const response = await apiFetch(`${API_URL}/chat/invites/${invite.id}/decline/`, {
         method: "DELETE",
         headers: { "X-CSRF-TOKEN": getCookie("csrf_access_token") },
         credentials: "include",
@@ -619,7 +649,7 @@ function App() {
       const chatRsaPair = await getChatKeyPair(temporaryChatId, name);
       const publicKey = await exportPublicKey(chatRsaPair.publicKey);
       const { aesKey, encryptedKey } = await createChatKey(chatRsaPair.publicKey);
-      const response = await fetch(`${API_URL}/chat`, {
+      const response = await apiFetch(`${API_URL}/chat`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -666,7 +696,7 @@ function App() {
     setDeletingChatId(chatId);
     setChatStatus(`Удаляем чат «${chat.name}»...`);
     try {
-      const response = await fetch(`${API_URL}/chat/${chat.id}`, {
+      const response = await apiFetch(`${API_URL}/chat/${chat.id}`, {
         method: "DELETE",
         headers: { "X-CSRF-TOKEN": getCookie("csrf_access_token") },
         credentials: "include",
@@ -706,7 +736,7 @@ function App() {
 
     setChatStatus("Обновляем метаданные...");
     try {
-      const response = await fetch(`${API_URL}/chat`, {
+      const response = await apiFetch(`${API_URL}/chat`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -735,7 +765,7 @@ function App() {
     clearInMemoryChatState();
     setAuthStatus("Входим...");
     try {
-      const response = await fetch(`${API_URL}/auth`, {
+      const response = await fetch(`${API_URL}/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",

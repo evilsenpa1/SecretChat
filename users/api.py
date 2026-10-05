@@ -1,6 +1,8 @@
+from authx import TokenPayload
 from fastapi import APIRouter, Depends, Response, status
 
 from core.dependencies import get_current_user_id
+from users.auth import auth
 
 from .schemas import LoginRequestSchema, UserResponseSchema
 from .services import UserService, get_user_service
@@ -33,12 +35,23 @@ async def get(id: int, service: UserService = Depends(get_user_service)):
     return user
 
 
-@router.post("/auth")
+@router.post("/auth/login")
 async def login(
     data: LoginRequestSchema,
     response: Response,
     service: UserService = Depends(get_user_service),
 ):
 
-    await service.login(data=data, response=response)
-    return {"status": "Ok"}
+    result = await service.login(data=data, response=response)
+    return {"status": result}
+
+
+@router.post("/auth/refresh")
+async def jwt_refresh(
+    response: Response,
+    payload: TokenPayload = Depends(auth.refresh_token_required),
+    service: UserService = Depends(get_user_service),
+):
+
+    result = await service.jwt_refresh(response=response, user_id=payload.user_id)
+    return {"status": result}
