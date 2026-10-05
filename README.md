@@ -19,9 +19,9 @@ SecretChat is designed as a learning project for private communication. The serv
 
 ## Tech stack
 
-**Backend:** Python 3.13+, FastAPI, WebSockets, SQLAlchemy, Alembic, PostgreSQL, Pydantic, `cryptography`.
+**Backend:** Python 3.13+, FastAPI, WebSockets, SQLAlchemy, Alembic, PostgreSQL, Pydantic, `bcrypt` for password hashing.
 
-**Frontend:** React, Vite, JavaScript.
+**Frontend:** React, Vite, JavaScript, browser Web Crypto API (AES-GCM and RSA-OAEP).
 
 ## Getting started
 
@@ -35,10 +35,10 @@ cp .env.example .env
 
 ### 2. Run with Docker Compose
 
-Build the images and start PostgreSQL:
+Start PostgreSQL:
 
 ```bash
-docker compose up -d --build db
+docker compose up -d db
 ```
 
 Apply the migrations:
@@ -47,10 +47,10 @@ Apply the migrations:
 docker compose run --rm backend alembic upgrade head
 ```
 
-Start the backend and frontend:
+Build and start the backend and frontend:
 
 ```bash
-docker compose up -d backend frontend
+docker compose up -d --build backend frontend
 ```
 
 The API will be available at `http://127.0.0.1:8080`, and the frontend at `http://localhost:5173`.
@@ -70,7 +70,7 @@ Start only PostgreSQL with Docker Compose:
 docker compose up -d db
 ```
 
-Create `.env` from `.env.example` and adjust the database connection values for your local setup.
+Create `.env` from `.env.example` and replace the placeholder secrets. When the backend runs on your host, set `POSTGRES_HOST=127.0.0.1` and `POSTGRES_PORT=5433` to connect to the Compose database. The Compose backend uses `POSTGRES_HOST=db` and `POSTGRES_PORT=5432`.
 
 Install the Python dependencies and activate the virtual environment. For example, with `uv`:
 
@@ -113,27 +113,37 @@ The Vite client will be available at `http://localhost:5173`.
 | Method | Route | Purpose |
 | --- | --- | --- |
 | `POST` | `/user` | Create a user |
-| `POST` | `/auth` | Log in and receive auth cookies |
+| `GET` | `/user/me` | Get the current user |
 | `GET` | `/user/{id}` | Get a user |
+| `POST` | `/auth/login` | Log in and receive auth cookies |
+| `POST` | `/auth/refresh` | Refresh auth cookies |
 | `POST` | `/chat` | Create a chat |
 | `GET` | `/chat` | Get the current user's chats |
 | `GET` | `/chat/{chat_id}` | Get a chat by ID |
 | `PATCH` | `/chat` | Update a chat |
+| `DELETE` | `/chat/{chat_id}` | Delete a chat |
 | `GET` | `/chat/{chat_id}/keys` | Get wrapped key versions for the current member |
+| `GET` | `/chat/{chat_id}/keys/{version}` | Get a specific wrapped key version |
 | `POST` | `/chat/{chat_id}/invites/` | Invite users to a chat |
 | `POST` | `/chat/invites/{invite_id}/accept` | Accept an invitation and rotate the chat key |
-| `DELETE` | `/chat/{chat_id}/members?member_id={member_id}` | Remove members and rotate the chat key |
+| `GET` | `/chat/invites/me` | Get the current user's invitations |
+| `DELETE` | `/chat/invites/{invite_id}/decline/` | Decline an invitation |
+| `DELETE` | `/chat/{chat_id}/members?member_id={member_id}` | Remove members and rotate the chat key (requires a key-rotation payload) |
 | `GET` | `/chat/{chat_id}/messages` | Get encrypted message history |
 
 ## WebSocket protocol
 
-After authentication, the client connects to:
+After authentication, the client connects to `ws://127.0.0.1:8000/ws` when running locally, or `ws://127.0.0.1:8080/ws` with Docker Compose:
 
 ```text
 ws://127.0.0.1:8000/ws
 ```
 
 The authentication cookies must be sent with the WebSocket connection.
+
+### Multi-process deployment status
+
+WebSocket connections are currently stored in process-local memory, so messages are broadcast only to clients connected to the same backend process. Running multiple backend workers or replicas requires Redis Pub/Sub to synchronize WebSocket events across processes; this integration is not implemented yet. The Redis service in `docker-compose.yml` is commented out, and the current setup assumes a single backend process.
 
 ### Client message
 
@@ -176,13 +186,14 @@ The server stores and broadcasts the encrypted event to members of the correspon
 ├── chat/       # WebSocket connections, chats, and messages
 ├── users/      # Users, registration, and authentication
 ├── core/       # Settings, dependencies, and database
-├── frontend/   # React client
+├── alembic/    # Database migrations
+├── frontend/   # React client and browser crypto
 └── main.py     # FastAPI entry point
 ```
 
 ## Encryption and key storage
 
-- The browser encrypts message bodies with AES-256-GCM. Each message uses a fresh random nonce; the server stores the ciphertext, nonce, and chat-key version.
+- Message encryption uses the browser's built-in Web Crypto API. The browser encrypts message bodies with AES-256-GCM. Each message uses a fresh random nonce; the server stores the ciphertext, nonce, and chat-key version.
 - Each chat has versioned AES keys. The client wraps each key for chat members with RSA-OAEP using 2048-bit RSA keys and SHA-256.
 - Accepting an invitation or removing a member rotates the chat key. Clients fetch only the wrapped keys available to the authenticated member through `GET /chat/{chat_id}/keys`.
 - Private RSA keys stay in the browser and are stored in IndexedDB as non-extractable `CryptoKey` objects. The server stores public keys and per-member wrapped AES keys, not private RSA keys.
