@@ -19,9 +19,9 @@ SecretChat задуманий як навчальний проєкт для пр
 
 ## Технології
 
-**Backend:** Python 3.13+, FastAPI, WebSockets, SQLAlchemy, Alembic, PostgreSQL, Pydantic, `cryptography`.
+**Backend:** Python 3.13+, FastAPI, WebSockets, SQLAlchemy, Alembic, PostgreSQL, Pydantic, `bcrypt` для хешування паролів.
 
-**Frontend:** React, Vite, JavaScript.
+**Frontend:** React, Vite, JavaScript, вбудований браузерний Web Crypto API (AES-GCM і RSA-OAEP).
 
 ## Запуск проєкту
 
@@ -35,10 +35,10 @@ cp .env.example .env
 
 ### 2. Запуск через Docker Compose
 
-Зберіть образи та запустіть PostgreSQL:
+Запустіть PostgreSQL:
 
 ```bash
-docker compose up -d --build db
+docker compose up -d db
 ```
 
 Застосуйте міграції:
@@ -47,10 +47,10 @@ docker compose up -d --build db
 docker compose run --rm backend alembic upgrade head
 ```
 
-Запустіть backend і frontend:
+Зберіть і запустіть backend та frontend:
 
 ```bash
-docker compose up -d backend frontend
+docker compose up -d --build backend frontend
 ```
 
 API буде доступний за адресою `http://127.0.0.1:8080`, а frontend — за адресою `http://localhost:5173`.
@@ -70,7 +70,7 @@ docker compose down
 docker compose up -d db
 ```
 
-Створіть `.env` на основі `.env.example` і налаштуйте параметри підключення до бази даних для свого локального середовища.
+Створіть `.env` на основі `.env.example` і замініть секрети-заповнювачі. Якщо backend запускається безпосередньо на хості, встановіть `POSTGRES_HOST=127.0.0.1` і `POSTGRES_PORT=5433`, щоб підключитися до бази Compose. Backend у Compose використовує `POSTGRES_HOST=db` і `POSTGRES_PORT=5432`.
 
 Встановіть Python-залежності та активуйте віртуальне середовище. Наприклад, за допомогою `uv`:
 
@@ -113,27 +113,37 @@ npm run dev
 | Метод | Маршрут | Призначення |
 | --- | --- | --- |
 | `POST` | `/user` | Створити користувача |
-| `POST` | `/auth` | Увійти та отримати auth cookies |
+| `GET` | `/user/me` | Отримати поточного користувача |
 | `GET` | `/user/{id}` | Отримати користувача |
+| `POST` | `/auth/login` | Увійти та отримати auth cookies |
+| `POST` | `/auth/refresh` | Оновити auth cookies |
 | `POST` | `/chat` | Створити чат |
 | `GET` | `/chat` | Отримати чати поточного користувача |
 | `GET` | `/chat/{chat_id}` | Отримати чат за ідентифікатором |
 | `PATCH` | `/chat` | Оновити чат |
+| `DELETE` | `/chat/{chat_id}` | Видалити чат |
 | `GET` | `/chat/{chat_id}/keys` | Отримати обгорнуті версії ключів поточного учасника |
+| `GET` | `/chat/{chat_id}/keys/{version}` | Отримати конкретну версію обгорнутого ключа |
 | `POST` | `/chat/{chat_id}/invites/` | Запросити користувачів до чату |
 | `POST` | `/chat/invites/{invite_id}/accept` | Прийняти запрошення та ротувати ключ чату |
-| `DELETE` | `/chat/{chat_id}/members?member_id={member_id}` | Видалити учасників і ротувати ключ чату |
+| `GET` | `/chat/invites/me` | Отримати запрошення поточного користувача |
+| `DELETE` | `/chat/invites/{invite_id}/decline/` | Відхилити запрошення |
+| `DELETE` | `/chat/{chat_id}/members?member_id={member_id}` | Видалити учасників і ротувати ключ чату (потрібен payload ротації ключа) |
 | `GET` | `/chat/{chat_id}/messages` | Отримати зашифровану історію повідомлень |
 
 ## WebSocket-протокол
 
-Після авторизації клієнт підключається до:
+Після авторизації клієнт підключається до `ws://127.0.0.1:8000/ws` під час локального запуску або `ws://127.0.0.1:8080/ws` із Docker Compose:
 
 ```text
 ws://127.0.0.1:8000/ws
 ```
 
 Авторизаційні cookies мають передаватися разом із WebSocket-підключенням.
+
+### Стан багатопроцесного запуску
+
+Зараз WebSocket-підключення зберігаються в пам'яті окремого процесу, тому повідомлення розсилаються лише клієнтам, підключеним до того самого backend-процесу. Для запуску кількох backend-процесів або реплік потрібен Redis Pub/Sub для синхронізації WebSocket-подій між процесами; цю інтеграцію ще не реалізовано. Сервіс Redis у `docker-compose.yml` закоментований, поточна конфігурація розрахована на один backend-процес.
 
 ### Повідомлення від клієнта
 
@@ -176,13 +186,14 @@ ws://127.0.0.1:8000/ws
 ├── chat/       # WebSocket-підключення, чати та повідомлення
 ├── users/      # Користувачі, реєстрація та авторизація
 ├── core/       # Налаштування, залежності та база даних
-├── frontend/   # React-клієнт
+├── alembic/    # Міграції бази даних
+├── frontend/   # React-клієнт і браузерна криптографія
 └── main.py     # Точка входу FastAPI
 ```
 
 ## Шифрування та зберігання ключів
 
-- Браузер шифрує текст повідомлень через AES-256-GCM. Для кожного повідомлення генерується новий випадковий nonce; сервер зберігає ciphertext, nonce та версію ключа чату.
+- Для шифрування використовується вбудований у браузер Web Crypto API. Браузер шифрує текст повідомлень через AES-256-GCM. Для кожного повідомлення генерується новий випадковий nonce; сервер зберігає ciphertext, nonce та версію ключа чату.
 - Кожен чат має версійовані AES-ключі. Клієнт обгортає ключ для кожного учасника через RSA-OAEP із ключем RSA 2048 біт і SHA-256.
 - Після прийняття запрошення або видалення учасника ключ чату ротують. Клієнт отримує доступні автентифікованому учаснику обгорнуті ключі через `GET /chat/{chat_id}/keys`.
 - Приватні RSA-ключі залишаються в браузері та зберігаються в IndexedDB як non-extractable об'єкти `CryptoKey`. Сервер зберігає публічні ключі та обгорнуті для учасників AES-ключі, але не приватні RSA-ключі.
