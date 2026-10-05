@@ -14,7 +14,18 @@ from users.auth import auth
 from users.exceptions import UserNotFoundError
 from users.services import UserService, get_user_service
 
-from .schemas import ChatCreateSchema, ChatPatchSchema, ChatSchema, MessageHistoryDataSchema, MessageRequestSchema, MessageResponseSchema
+from .schemas import (
+    AddMembersSchema,
+    ChatCreateSchema,
+    ChatKeyMineSchema,
+    ChatPatchSchema,
+    ChatSchema,
+    DeleteMembersSchema,
+    InviteCreateSchema,
+    InviteMineSchema,
+    MessageHistoryDataSchema,
+    MessageRequestSchema,
+)
 from .services import (
     ChatService,
     ConnectionManager,
@@ -95,6 +106,7 @@ async def get(chat_id: int, chat_service: ChatService = Depends(get_chat_service
     chat = await chat_service.get(chat_id)
     return chat
 
+
 @router.get(
     "/chat/{chat_id}/messages",
     response_model=list[MessageHistoryDataSchema],
@@ -105,6 +117,7 @@ async def get_messages(
     user_id: int = Depends(get_current_user_id),
 ):
     return await chat_service.get_messages(chat_id, user_id)
+
 
 @router.get("/chat", response_model=list[ChatSchema])
 async def get_many(
@@ -125,3 +138,84 @@ async def delete(
 
     await chat_service.delete(chat_id=chat_id, user_id=user_id)
     return {"status": "Ok"}
+
+
+@router.get("/chat/{chat_id}/keys", response_model=list[ChatKeyMineSchema])
+async def keys(
+    chat_id: int,
+    user_id: int = Depends(get_current_user_id),
+    chat_service: ChatService = Depends(get_chat_service),
+):
+    return await chat_service.keys(user_id=user_id, chat_id=chat_id)
+
+
+@router.get("/chat/{chat_id}/keys/{version}", response_model=list[ChatKeyMineSchema])
+async def version_key(
+    chat_id: int,
+    version: int,
+    user_id: int = Depends(get_current_user_id),
+    chat_service: ChatService = Depends(get_chat_service),
+):
+    return await chat_service.keys(user_id=user_id, chat_id=chat_id, version=version)
+
+
+# @router.post("/chat/{chat_id}/members", response_model=ChatSchema)
+# async def members_add(
+#     data: AddMembersSchema,
+#     chat_id: int,
+#     user_id: int = Depends(get_current_user_id),
+#     chat_service: ChatService = Depends(get_chat_service),
+# ):
+#     return await chat_service.add_members(chat_id=chat_id, user_id=user_id, data=data)
+
+
+@router.delete("/chat/{chat_id}/members", response_model=ChatSchema)
+async def members_delete(
+    data: DeleteMembersSchema,
+    chat_id: int,
+    member_id: int,
+    user_id: int = Depends(get_current_user_id),
+    chat_service: ChatService = Depends(get_chat_service),
+):
+    return await chat_service.delete_members(
+        chat_id=chat_id, user_id=user_id, data=data
+    )
+
+
+@router.get("/chat/invites/me", response_model=list[InviteMineSchema])
+async def get_invites(
+    user_id: int = Depends(get_current_user_id),
+    chat_service: ChatService = Depends(get_chat_service),
+):
+    return await chat_service.get_invites(user_id=user_id)
+
+
+@router.post("/chat/{chat_id}/invites/", status_code=201)
+async def invite_user(
+    chat_id: int,
+    data: InviteCreateSchema,
+    owner_id: int = Depends(get_current_user_id),
+    chat_service: ChatService = Depends(get_chat_service),
+):
+    await chat_service.invite_user(chat_id=chat_id, data=data, owner_id=owner_id)
+
+
+@router.post("/chat/invites/{invite_id}/accept", response_model=ChatSchema)
+async def accept_invite(
+    data: AddMembersSchema,
+    invite_id: int,
+    user_id: int = Depends(get_current_user_id),
+    chat_service: ChatService = Depends(get_chat_service),
+):
+    return await chat_service.accept_invite(
+        invite_id=invite_id, user_id=user_id, data=data
+    )
+
+
+@router.delete("/chat/invites/{invite_id}/decline/", status_code=204)
+async def decline_invite(
+    invite_id: int,
+    user_id: int = Depends(get_current_user_id),
+    chat_service: ChatService = Depends(get_chat_service),
+):
+    await chat_service.decline_invite(user_id=user_id, invite_id=invite_id)

@@ -1,3 +1,6 @@
+import logging
+from typing import Sequence
+
 from fastapi import Depends
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -7,6 +10,8 @@ from core.db.base import get_session
 
 from .exceptions import UserIntegrityError, UserNotFoundError
 from .models import UserModel
+
+logger = logging.getLogger(__name__)
 
 
 class UserRepository:
@@ -27,6 +32,20 @@ class UserRepository:
         if user is None:
             raise UserNotFoundError
         return user
+
+    async def get_many(self, ids: Sequence[int]) -> list[UserModel]:
+        result = await self.session.execute(
+            select(self.model).where(self.model.id.in_(ids))
+        )
+        result = list(result.scalars().all())
+
+        if len(result) != len(ids):
+            result = {i.id for i in result}
+            error_ids = set(ids) - result
+            logger.warning("Some users did`t found!", extra={"error_ids": error_ids})
+            raise UserNotFoundError
+
+        return result
 
     async def get_filter(self, **kwargs) -> UserModel | None:
         user = await self.session.execute(select(self.model).filter_by(**kwargs))

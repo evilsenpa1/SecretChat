@@ -1,7 +1,9 @@
-import bcrypt
-from fastapi import Depends
+from typing import Sequence
 
-from .auth import auth
+import bcrypt
+from fastapi import Depends, Response
+
+from .auth import auth, set_jwt_pair
 from .exceptions import UserIntegrityError, UserNotFoundError, UserPermissionError
 from .models import UserModel
 from .repository import UserRepository, get_user_repository
@@ -15,13 +17,16 @@ class UserService:
     async def get(self, id: int) -> UserModel:
         return await self.repo.get(id)
 
+    async def get_many(self, ids: Sequence[int]) -> list[UserModel]:
+        return await self.repo.get_many(ids)
+
     async def create(self, data: LoginRequestSchema) -> bool:
         user = await self.repo.get_filter(name=data.name)
         if user is not None:
             raise UserIntegrityError
-        hashed = bcrypt.hashpw(bytes(data.password.encode()), bcrypt.gensalt(rounds=16)).decode(
-            "utf-8"
-        )
+        hashed = bcrypt.hashpw(
+            bytes(data.password.encode()), bcrypt.gensalt(rounds=15)
+        ).decode("utf-8")
         return await self.repo.create(name=data.name, password=hashed)
 
     async def delete(self):
@@ -34,15 +39,23 @@ class UserService:
 
         name = user.name
         password = user.password
-        if name == data.name and bcrypt.checkpw(data.password.encode(), password.encode()):
-            access = auth.create_access_token(uid=name, data={"user_id": user.id})
-            refresh = auth.create_refresh_token(uid=name)
-
-            auth.set_access_cookies(access, response, max_age=300 * 60)
-            auth.set_refresh_cookies(refresh, response, max_age=3600 * 24 * 5)
+        if name == data.name and bcrypt.checkpw(
+            data.password.encode(), password.encode()
+        ):
+            set_jwt_pair(user.name, user.id, response)
 
             return True
         raise UserPermissionError
+
+    async def jwt_refresh(self, response: Response, user_id: int) -> bool:
+
+        user = await self.repo.get(user_id)
+
+        auth.unset_cookies(response)
+
+        set_jwt_pair(user.name, user.id, response)
+
+        return True
 
 
 def get_user_service(repo: UserRepository = Depends(get_user_repository)):

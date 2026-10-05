@@ -1,3 +1,3 @@
-from .models import ChatModel, MessageModel, chat_user_association_table
+from .models import ChatModel, ChatUserAssociation, MessageModel
 
-__all__ = ["ChatModel", "MessageModel", "chat_user_association_table"]
+__all__ = ["ChatModel", "MessageModel", "ChatUserAssociation"]

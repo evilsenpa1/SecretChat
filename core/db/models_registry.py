@@ -1,2 +1,9 @@
-from chat.models import ChatModel, MessageModel, chat_user_association_table
+from chat.models import (
+    ChatKeyRecipient,
+    ChatModel,
+    ChatUserAssociation,
+    MessageModel,
+    ChatInviteModel,
+)
+
 from users.models import UserModel

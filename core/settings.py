@@ -18,6 +18,9 @@ class Settings(BaseSettings):
 
     JWT_SECRET_KEY: str
 
+    JWT_ACCESS_TTL: int = 300
+    JWT_REFRESH_TTL: int = 3600 * 24 * 5
+
     @computed_field
     @property
     def pg_dsn(self) -> PostgresDsn:

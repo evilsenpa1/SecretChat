@@ -4,14 +4,15 @@
 
 A small pet project for a secure browser chat. Users authenticate through an HTTP API, create shared chats, and exchange messages in real time over WebSockets.
 
-SecretChat is designed as a learning project for private communication: the server manages users, chats, and connections, while the message format stays simple for client applications.
+SecretChat is designed as a learning project for private communication. The server manages users, chats, and connections; the browser client encrypts message contents and manages chat keys.
 
 ## Features
 
 - user registration and authentication;
 - JWT authentication through cookies;
 - chat creation and editing;
-- adding members to a chat;
+- invitations, member removal, and chat-key rotation;
+- browser-side message encryption with AES-GCM and RSA-OAEP-wrapped chat keys;
 - real-time messaging over WebSockets;
 - asynchronous PostgreSQL access;
 - a separate React client powered by Vite.
@@ -118,6 +119,11 @@ The Vite client will be available at `http://localhost:5173`.
 | `GET` | `/chat` | Get the current user's chats |
 | `GET` | `/chat/{chat_id}` | Get a chat by ID |
 | `PATCH` | `/chat` | Update a chat |
+| `GET` | `/chat/{chat_id}/keys` | Get wrapped key versions for the current member |
+| `POST` | `/chat/{chat_id}/invites/` | Invite users to a chat |
+| `POST` | `/chat/invites/{invite_id}/accept` | Accept an invitation and rotate the chat key |
+| `DELETE` | `/chat/{chat_id}/members?member_id={member_id}` | Remove members and rotate the chat key |
+| `GET` | `/chat/{chat_id}/messages` | Get encrypted message history |
 
 ## WebSocket protocol
 
@@ -131,7 +137,7 @@ The authentication cookies must be sent with the WebSocket connection.
 
 ### Client message
 
-Each message contains an event type and message data. The client generates `client_msg_id` to match the sent message with the server response.
+Each message contains an event type and message data. The client generates `client_msg_id` to match the sent message with the server response. The browser encrypts the message body with the current chat AES key before sending it; `body` and `nonce` below are Base64-encoded ciphertext and a 12-byte AES-GCM nonce.
 
 ```json
 {
@@ -139,14 +145,15 @@ Each message contains an event type and message data. The client generates `clie
   "data": {
     "chat_id": 123,
     "client_msg_id": "5b1e...uuid",
-    "body": "Hello!"
+    "body": "<base64-ciphertext>",
+    "nonce": "<base64-12-byte-nonce>"
   }
 }
 ```
 
 ### Server message
 
-The server broadcasts the event to members of the corresponding chat:
+The server stores and broadcasts the encrypted event to members of the corresponding chat. It adds `key_version` so clients can select the matching AES key:
 
 ```json
 {
@@ -155,7 +162,9 @@ The server broadcasts the event to members of the corresponding chat:
     "id": 456,
     "chat_id": 123,
     "client_msg_id": "5b1e...uuid",
-    "body": "Hello!"
+    "body": "<base64-ciphertext>",
+    "nonce": "<base64-12-byte-nonce>",
+    "key_version": 2
   }
 }
 ```
@@ -171,13 +180,21 @@ The server broadcasts the event to members of the corresponding chat:
 └── main.py     # FastAPI entry point
 ```
 
-## Encryption status
+## Encryption and key storage
 
-SecretChat is evolving as a secure communication project. WebSocket access is protected by authentication, and the `cryptography` dependency is ready for future encryption work. In production, the connection should run over `wss://` behind an HTTPS proxy, with end-to-end message encryption implemented separately if the server must not access message contents.
+- The browser encrypts message bodies with AES-256-GCM. Each message uses a fresh random nonce; the server stores the ciphertext, nonce, and chat-key version.
+- Each chat has versioned AES keys. The client wraps each key for chat members with RSA-OAEP using 2048-bit RSA keys and SHA-256.
+- Accepting an invitation or removing a member rotates the chat key. Clients fetch only the wrapped keys available to the authenticated member through `GET /chat/{chat_id}/keys`.
+- Private RSA keys stay in the browser and are stored in IndexedDB as non-extractable `CryptoKey` objects. The server stores public keys and per-member wrapped AES keys, not private RSA keys.
+- Older JWK keys in browser storage are migrated to IndexedDB only when their public key matches the chat, then the plaintext Web Storage copy is removed.
+- The IndexedDB key is **not encrypted with the account password**. Non-extractable prevents exporting the key through Web Crypto, but same-origin JavaScript can still use it; this is not protection against XSS or compromised client code.
+- Browser storage is origin-specific: for example, `localhost:5173` and `localhost:5174` have separate keys. Encrypted key backup and restore are not implemented. If browser storage is cleared or the origin changes, the server cannot recover the private key or decrypt old messages.
+- In production, serve the frontend over HTTPS and use `wss://` for WebSocket connections.
 
 ## Roadmap ideas
 
-- full end-to-end message encryption;
+- encrypted key backup and restore;
+- password-based key-vault unlock;
 - message history and pagination;
 - delivery and read statuses;
 - a typing indicator;
