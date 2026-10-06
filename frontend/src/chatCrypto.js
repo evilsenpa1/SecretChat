@@ -184,6 +184,32 @@ export async function deleteChatKeyPair(chatId, username) {
     removeLegacyKeyPair(storageKey);
 }
 
+export async function deleteChatKeyPairs(username) {
+    const prefix = `${rsaKeyStoragePrefix}${encodeURIComponent(username || "guest")}-`;
+    const database = await openKeyDatabase();
+    await new Promise((resolve, reject) => {
+        const transaction = database.transaction(keyStoreName, "readwrite");
+        const objectStore = transaction.objectStore(keyStoreName);
+        const request = objectStore.getAllKeys();
+        request.onsuccess = () => {
+            request.result
+                .filter((key) => typeof key === "string" && key.startsWith(prefix))
+                .forEach((key) => objectStore.delete(key));
+        };
+        request.onerror = () => reject(request.error);
+        transaction.oncomplete = resolve;
+        transaction.onerror = () => reject(transaction.error);
+        transaction.onabort = () => reject(transaction.error || new Error("Не удалось удалить RSA-ключи"));
+    });
+
+    for (const storage of [sessionStorage, localStorage]) {
+        for (let index = storage.length - 1; index >= 0; index -= 1) {
+            const key = storage.key(index);
+            if (key?.startsWith(prefix)) storage.removeItem(key);
+        }
+    }
+}
+
 export async function exportPublicKey(key) {
     return bytesToBase64(new Uint8Array(await crypto.subtle.exportKey("spki", key)));
 }

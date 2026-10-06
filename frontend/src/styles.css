@@ -135,6 +135,11 @@ h1 span {
     font-weight: 700;
 }
 
+.delete-account-button {
+    padding: 9px 4px;
+    font-size: 11px;
+}
+
 .status-pill {
     display: flex;
     align-items: center;

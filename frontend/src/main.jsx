@@ -5,6 +5,7 @@ import {
   decryptChatKey,
   decryptMessage,
   deleteChatKeyPair,
+  deleteChatKeyPairs,
   encryptMessage,
   exportPublicKey,
   getChatKeyPair,
@@ -100,6 +101,7 @@ function App() {
   const [deletingMemberId, setDeletingMemberId] = useState("");
   const [currentUserId, setCurrentUserId] = useState(null);
   const [profileLoading, setProfileLoading] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
   const [invites, setInvites] = useState([]);
   const [invitesLoading, setInvitesLoading] = useState(false);
   const [inviteStatus, setInviteStatus] = useState("");
@@ -785,6 +787,44 @@ function App() {
     }
   };
 
+  const deleteAccount = async () => {
+    if (!currentUserId || deletingAccount) return;
+    const confirmed = window.confirm(
+      "Удалить аккаунт без возможности восстановления? Локальные RSA-ключи этого аккаунта тоже будут удалены.",
+    );
+    if (!confirmed) return;
+
+    setDeletingAccount(true);
+    setAuthStatus("Удаляем аккаунт...");
+    try {
+      const response = await apiFetch(`${API_URL}/user/${currentUserId}`, {
+        method: "DELETE",
+        headers: { "X-CSRF-TOKEN": getCookie("csrf_access_token") },
+      });
+      if (!response.ok) throw new Error(`Не удалось удалить аккаунт (${response.status})`);
+
+      let keyCleanupFailed = false;
+      try {
+        await deleteChatKeyPairs(name);
+      } catch {
+        keyCleanupFailed = true;
+      }
+      clearInMemoryChatState();
+      localStorage.removeItem("secret-chat-user");
+      setName("");
+      setPassword("");
+      setInvites([]);
+      setIsAuthenticated(false);
+      setAuthStatus(keyCleanupFailed
+        ? "Аккаунт удалён, но локальные ключи удалить не удалось"
+        : "Аккаунт удалён");
+    } catch (error) {
+      setAuthStatus(error.message);
+    } finally {
+      setDeletingAccount(false);
+    }
+  };
+
   const connect = () => {
     if (connectAttemptRef.current || isConnected) return;
     connectAttemptRef.current = true;
@@ -923,6 +963,14 @@ function App() {
           <div className="user-pill">
             Аккаунт: <strong>{name || "guest"}</strong>
           </div>
+          <button
+            className="text-button danger-button delete-account-button"
+            type="button"
+            onClick={deleteAccount}
+            disabled={deletingAccount || profileLoading || !currentUserId}
+          >
+            {deletingAccount ? "Удаляем..." : "Удалить аккаунт"}
+          </button>
           <div className={`status-pill ${status}`}>
             <i /> {status === "online" ? "online" : status === "connecting" ? "connecting" : "offline"}
           </div>
