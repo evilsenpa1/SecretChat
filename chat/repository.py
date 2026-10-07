@@ -1,5 +1,5 @@
-from datetime import datetime
-from typing import Iterable
+from collections.abc import Iterable
+from datetime import UTC, datetime
 
 from fastapi import Depends
 from sqlalchemy import delete, func, select
@@ -39,7 +39,7 @@ class ChatRepository:
         self.session.add(chat)
         await self.session.flush()
 
-        chat_key = ChatKeyModel(chat_id=chat.id, version=1, created_at=datetime.now())
+        chat_key = ChatKeyModel(chat_id=chat.id, version=1, created_at=datetime.now(tz=UTC))
         self.session.add(chat_key)
         await self.session.flush()
 
@@ -121,11 +121,9 @@ class ChatRepository:
         await self.session.flush()
         await self.session.commit()
 
-    async def create_message(
-        self, message: MessageRequestSchema, user: UserModel
-    ) -> MessageModel:
+    async def create_message(self, message: MessageRequestSchema, user: UserModel) -> MessageModel:
         chat = await self.get(message.data.chat_id)
-        date = datetime.today()
+        date = datetime.now(tz=UTC)
 
         key_version = (
             select(func.max(ChatKeyModel.version))
@@ -165,9 +163,7 @@ class ChatRepository:
 
         return list(messages.scalars().all())
 
-    async def keys(
-        self, chat: ChatModel, user: UserModel, version: None | int
-    ) -> list[dict]:
+    async def keys(self, chat: ChatModel, user: UserModel, version: None | int) -> list[dict]:
         keys = (
             select(
                 ChatKeyRecipient.encrypted_key,
@@ -193,7 +189,7 @@ class ChatRepository:
         new_member_models.sort(key=lambda x: x.id)
         new_members = data.new_members
         new_members.sort(key=lambda x: x.member_id)
-        members_zipped = zip(new_member_models, new_members)
+        members_zipped = zip(new_member_models, new_members, strict=True)
 
         links = []
         for model, schema in members_zipped:
@@ -205,7 +201,7 @@ class ChatRepository:
         await self.session.flush()
 
         chat_key = ChatKeyModel(
-            chat_id=chat.id, version=data.new_version, created_at=datetime.now()
+            chat_id=chat.id, version=data.new_version, created_at=datetime.now(UTC)
         )
         self.session.add(chat_key)
         await self.session.flush()
@@ -245,7 +241,7 @@ class ChatRepository:
         )
 
         chat_key = ChatKeyModel(
-            chat_id=chat.id, version=data.new_version, created_at=datetime.now()
+            chat_id=chat.id, version=data.new_version, created_at=datetime.now(UTC)
         )
         self.session.add(chat_key)
         await self.session.flush()

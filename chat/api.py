@@ -75,7 +75,6 @@ async def websocket_endpoint(
                 )
     except WebSocketDisconnect:
         manager.disconnect(user_id=user.id)
-        # await manager.broadcast(f"Client [{user.name}] left the chat")
 
 
 @router.post("/chat", response_model=ChatSchema)
@@ -177,9 +176,7 @@ async def members_delete(
     user_id: int = Depends(get_current_user_id),
     chat_service: ChatService = Depends(get_chat_service),
 ):
-    return await chat_service.delete_members(
-        chat_id=chat_id, user_id=user_id, data=data
-    )
+    return await chat_service.delete_members(chat_id=chat_id, user_id=user_id, data=data)
 
 
 @router.get("/chat/invites/me", response_model=list[InviteMineSchema])
@@ -207,9 +204,7 @@ async def accept_invite(
     user_id: int = Depends(get_current_user_id),
     chat_service: ChatService = Depends(get_chat_service),
 ):
-    return await chat_service.accept_invite(
-        invite_id=invite_id, user_id=user_id, data=data
-    )
+    return await chat_service.accept_invite(invite_id=invite_id, user_id=user_id, data=data)
 
 
 @router.delete("/chat/invites/{invite_id}/decline/", status_code=204)

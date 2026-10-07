@@ -20,7 +20,6 @@ if config.config_file_name is not None:
 # add your model's MetaData object here
 # for 'autogenerate' support
 from core.db.base import Base
-from core.db import models_registry
 
 target_metadata = Base.metadata
 # target_metadata = None
