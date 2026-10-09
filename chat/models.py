@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, String
+from sqlalchemy import DateTime, ForeignKey, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from core.db.base import Base
@@ -32,7 +32,10 @@ class ChatKeyModel(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     chat_id: Mapped[int] = mapped_column(ForeignKey("chats.id", ondelete="CASCADE"))
     version: Mapped[int] = mapped_column()  # increment after rotation
-    created_at: Mapped[datetime] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
 
     chat: Mapped["ChatModel"] = relationship(back_populates="keys")
     wrapped_keys: Mapped[list["ChatKeyRecipient"]] = relationship(
@@ -97,4 +100,7 @@ class MessageModel(Base):
     chat: Mapped[ChatModel] = relationship(
         ChatModel, foreign_keys=[chat_id], back_populates="messages"
     )
-    created_at: Mapped[datetime] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )

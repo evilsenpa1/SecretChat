@@ -87,6 +87,8 @@ function App() {
   const [name, setName] = useState(() => localStorage.getItem("secret-chat-user") || "");
   const [password, setPassword] = useState("");
   const [authStatus, setAuthStatus] = useState("");
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [authSubmitting, setAuthSubmitting] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(() => Boolean(localStorage.getItem("secret-chat-user")));
   const [chats, setChats] = useState([]);
   const [selectedChatId, setSelectedChatId] = useState("");
@@ -787,6 +789,32 @@ function App() {
     }
   };
 
+  const register = async (event) => {
+    event.preventDefault();
+    setAuthSubmitting(true);
+    setAuthStatus("Создаём аккаунт...");
+    try {
+      const response = await fetch(`${API_URL}/users`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name.trim(), password }),
+      });
+      if (!response.ok) {
+        if (response.status === 409) throw new Error("Пользователь с таким именем уже существует");
+        if (response.status === 422) throw new Error("Проверьте имя и пароль");
+        throw new Error(`Не удалось создать аккаунт (${response.status})`);
+      }
+      setName(name.trim());
+      setPassword("");
+      setIsRegistering(false);
+      setAuthStatus("Аккаунт создан. Теперь войдите.");
+    } catch (error) {
+      setAuthStatus(error.message);
+    } finally {
+      setAuthSubmitting(false);
+    }
+  };
+
   const deleteAccount = async () => {
     if (!currentUserId || deletingAccount) return;
     const confirmed = window.confirm(
@@ -914,15 +942,17 @@ function App() {
           <div className="brand-mark">SC</div>
           <div>
             <p className="eyebrow">WEBSOCKET LAB · LOCAL CLIENT</p>
-            <h1>SecretChat <span>sign in</span></h1>
-            <p className="subtitle">Войдите, чтобы загрузить ваши чаты.</p>
+            <h1>SecretChat <span>{isRegistering ? "create account" : "sign in"}</span></h1>
+            <p className="subtitle">
+              {isRegistering ? "Создайте аккаунт для защищённого общения." : "Войдите, чтобы загрузить ваши чаты."}
+            </p>
           </div>
         </section>
-        <form className="panel auth-card login-form" onSubmit={login}>
+        <form className="panel auth-card login-form" onSubmit={isRegistering ? register : login}>
           <div className="panel-heading">
             <div>
               <span className="section-number">01</span>
-              <h2>Вход</h2>
+              <h2>{isRegistering ? "Регистрация" : "Вход"}</h2>
             </div>
             <span className="lock">COOKIE AUTH</span>
           </div>
@@ -931,6 +961,8 @@ function App() {
             id="user-name"
             value={name}
             onChange={(event) => setName(event.target.value)}
+            maxLength={20}
+            autoComplete="username"
             required
           />
           <label className="field-label" htmlFor="user-password">Пароль</label>
@@ -939,12 +971,24 @@ function App() {
             type="password"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
+            autoComplete={isRegistering ? "new-password" : "current-password"}
             required
           />
-          <button className="send-button" type="submit">
-            Войти <span>↗</span>
+          <button className="send-button" type="submit" disabled={authSubmitting}>
+            {authSubmitting ? "Подождите..." : isRegistering ? "Создать аккаунт" : "Войти"} <span>↗</span>
           </button>
           {authStatus && <p className="auth-status">{authStatus}</p>}
+          <button
+            className="text-button"
+            type="button"
+            onClick={() => {
+              setIsRegistering((current) => !current);
+              setAuthStatus("");
+            }}
+            disabled={authSubmitting}
+          >
+            {isRegistering ? "Уже есть аккаунт? Войти" : "Нет аккаунта? Зарегистрироваться"}
+          </button>
         </form>
       </main>
     );

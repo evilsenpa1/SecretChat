@@ -1,5 +1,4 @@
 from collections.abc import Iterable
-from datetime import UTC, datetime
 
 from fastapi import Depends
 from sqlalchemy import delete, func, select
@@ -39,7 +38,7 @@ class ChatRepository:
         self.session.add(chat)
         await self.session.flush()
 
-        chat_key = ChatKeyModel(chat_id=chat.id, version=1, created_at=datetime.now(tz=UTC))
+        chat_key = ChatKeyModel(chat_id=chat.id, version=1)
         self.session.add(chat_key)
         await self.session.flush()
 
@@ -122,7 +121,6 @@ class ChatRepository:
         await self.session.commit()
 
     async def create_message(self, message: MessageRequestSchema, user: UserModel) -> MessageModel:
-        date = datetime.now(tz=UTC)
 
         key_version = (
             select(func.max(ChatKeyModel.version))
@@ -144,7 +142,6 @@ class ChatRepository:
             body=message.data.body,
             owner=user,
             chat=chat,
-            created_at=date,
             nonce=message.data.nonce,
             chat_key=actual_key,
         )
@@ -201,9 +198,7 @@ class ChatRepository:
         self.session.add(chat)
         await self.session.flush()
 
-        chat_key = ChatKeyModel(
-            chat_id=chat.id, version=data.new_version, created_at=datetime.now(UTC)
-        )
+        chat_key = ChatKeyModel(chat_id=chat.id, version=data.new_version)
         self.session.add(chat_key)
         await self.session.flush()
 
@@ -241,9 +236,7 @@ class ChatRepository:
             .where(ChatKeyRecipient.user_id.in_(data_member_ids))
         )
 
-        chat_key = ChatKeyModel(
-            chat_id=chat.id, version=data.new_version, created_at=datetime.now(UTC)
-        )
+        chat_key = ChatKeyModel(chat_id=chat.id, version=data.new_version)
         self.session.add(chat_key)
         await self.session.flush()
 
