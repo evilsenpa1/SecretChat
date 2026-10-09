@@ -118,6 +118,26 @@ h1 span {
     gap: 10px;
 }
 
+.language-switch {
+    display: inline-flex;
+    flex: 0 0 auto;
+    border: 1px solid #2b3b50;
+}
+
+.language-switch button {
+    min-width: 38px;
+    padding: 7px 9px;
+    border: 0;
+    color: #8292a5;
+    background: transparent;
+    font: 700 10px "DM Mono", monospace;
+}
+
+.language-switch button.active {
+    color: #09201d;
+    background: #6ce0c0;
+}
+
 .user-pill {
     display: inline-flex;
     align-items: center;
@@ -1043,6 +1063,12 @@ footer {
         align-items: flex-start;
         flex-wrap: wrap;
         margin-bottom: 25px;
+    }
+
+    .topbar-actions {
+        width: 100%;
+        margin-left: 0;
+        flex-wrap: wrap;
     }
 
     .hero::after {
