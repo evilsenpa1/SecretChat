@@ -11,3 +11,7 @@ class ChatPermissionError(exceptions.AppPermissionError):
 
 class ChatIntegrityError(exceptions.IntegrityError):
     default_message = "Chat integrity error!"
+
+
+class ValidationError(exceptions.AppError):
+    default_message = "Chat validation failed!"

@@ -122,7 +122,6 @@ class ChatRepository:
         await self.session.commit()
 
     async def create_message(self, message: MessageRequestSchema, user: UserModel) -> MessageModel:
-        chat = await self.get(message.data.chat_id)
         date = datetime.now(tz=UTC)
 
         key_version = (
@@ -138,6 +137,8 @@ class ChatRepository:
         )
         actual_key = await self.session.execute(actual_key)
         actual_key = actual_key.scalar_one()
+
+        chat = await self.get(message.data.chat_id)
 
         result = self.message_model(
             body=message.data.body,
