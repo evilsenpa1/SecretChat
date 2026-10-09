@@ -79,6 +79,7 @@ class MessageResponseDataSchema(BaseModel):
     id: int
     chat_id: int
     body: str
+    created_at: datetime
     client_msg_id: str
     nonce: str
     key_version: int

@@ -64,3 +64,52 @@ dev = [
     "debugpy>=1.8.21",
     "ruff==0.15.13",
 ]
+
+[tool.ruff]
+line-length = 100
+src = ["."]
+extend-exclude = ["alembic/versions", "core/db/models_registry.py"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",    # pycodestyle
+    "F",         # pyflakes
+    "I",         # isort
+    "B",         # flake8-bugbear
+    "UP",        # pyupgrade
+    "S",         # flake8-bandit
+    "ASYNC",     # ошибки в async-коде
+    "C4",        # comprehensions
+    "SIM",       # simplify
+    "PTH",       # pathlib
+    "RUF",       # ruff-rules
+    "T20",       # check print()
+    "PL",        # pylint-rules
+    "TCH",       # import only for types under TYPE_CHECKING
+    "N",         # pep8-naming
+    "DTZ",       # naive datetime
+    "ERA",       # commented code
+]
+ignore = [
+    "PLR0913",   # many arguments
+    "PLR2004",   # magic values
+    "RUF001", "RUF002", "RUF003",  # cyrillic in comments
+]
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Query",
+    "fastapi.Body",
+    "fastapi.Path",
+    "fastapi.Header",
+    "fastapi.Security",
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["chat", "core", "users"]
+
+
+[tool.ruff.format]
+quote-style = "double"
+docstring-code-format = true

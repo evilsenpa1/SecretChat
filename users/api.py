@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, Response, status
 
 from core.dependencies import get_current_user_id
 from users.auth import auth
+from users.exceptions import UserPermissionError
 
 from .schemas import LoginRequestSchema, UserResponseSchema
 from .services import UserService, get_user_service
@@ -10,43 +11,38 @@ from .services import UserService, get_user_service
 router = APIRouter()
 
 
-@router.post("/user", status_code=status.HTTP_201_CREATED)
-async def create(
-    data: LoginRequestSchema, service: UserService = Depends(get_user_service)
-):
+@router.post("/users", status_code=status.HTTP_201_CREATED, response_model=UserResponseSchema)
+async def create(data: LoginRequestSchema, service: UserService = Depends(get_user_service)):
 
-    await service.create(data)
-    return {"result": "ok"}
+    return await service.create(data)
 
 
-@router.get("/user/me", response_model=UserResponseSchema)
+@router.get("/users/me", response_model=UserResponseSchema)
 async def profile(
     service: UserService = Depends(get_user_service),
     user_id: int = Depends(get_current_user_id),
 ):
-    user = await service.get(user_id)
-    return user
+
+    return await service.get(user_id)
 
 
-@router.get("/user/{id}", response_model=UserResponseSchema)
+@router.get("/users/{id}", response_model=UserResponseSchema)
 async def get(id: int, service: UserService = Depends(get_user_service)):
 
-    user = await service.get(id)
-    return user
+    return await service.get(id)
 
 
-@router.post("/auth/login")
+@router.post("/users/login", response_model=UserResponseSchema)
 async def login(
     data: LoginRequestSchema,
     response: Response,
     service: UserService = Depends(get_user_service),
 ):
 
-    result = await service.login(data=data, response=response)
-    return {"status": result}
+    return await service.login(data=data, response=response)
 
 
-@router.post("/auth/refresh")
+@router.post("/users/refresh-jwt")
 async def jwt_refresh(
     response: Response,
     payload: TokenPayload = Depends(auth.refresh_token_required),
@@ -55,3 +51,14 @@ async def jwt_refresh(
 
     result = await service.jwt_refresh(response=response, user_id=payload.user_id)
     return {"status": result}
+
+
+@router.delete("/users/{id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete(
+    id: int,
+    service: UserService = Depends(get_user_service),
+    user_id: int = Depends(get_current_user_id),
+):
+    if user_id != id:
+        raise UserPermissionError
+    await service.delete(id=id)

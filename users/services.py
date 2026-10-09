@@ -1,4 +1,4 @@
-from typing import Sequence
+from collections.abc import Collection
 
 import bcrypt
 from fastapi import Depends, Response
@@ -17,34 +17,37 @@ class UserService:
     async def get(self, id: int) -> UserModel:
         return await self.repo.get(id)
 
-    async def get_many(self, ids: Sequence[int]) -> list[UserModel]:
+    async def get_many(self, ids: Collection[int]) -> list[UserModel]:
         return await self.repo.get_many(ids)
 
-    async def create(self, data: LoginRequestSchema) -> bool:
+    async def create(self, data: LoginRequestSchema) -> UserModel:
         user = await self.repo.get_filter(name=data.name)
         if user is not None:
             raise UserIntegrityError
-        hashed = bcrypt.hashpw(
-            bytes(data.password.encode()), bcrypt.gensalt(rounds=15)
-        ).decode("utf-8")
+        hashed = bcrypt.hashpw(bytes(data.password.encode()), bcrypt.gensalt(rounds=15)).decode(
+            "utf-8"
+        )
         return await self.repo.create(name=data.name, password=hashed)
 
-    async def delete(self):
-        pass
+    async def delete(self, id: int) -> bool:
+        user = await self.repo.get(id)
+        if user.id != id:
+            raise UserPermissionError
+        await self.repo.delete(user)
 
-    async def login(self, data: LoginRequestSchema, response) -> bool:
+        return True
+
+    async def login(self, data: LoginRequestSchema, response) -> UserModel:
         user = await self.repo.get_filter(name=data.name)
         if user is None:
             raise UserNotFoundError
 
         name = user.name
         password = user.password
-        if name == data.name and bcrypt.checkpw(
-            data.password.encode(), password.encode()
-        ):
+        if name == data.name and bcrypt.checkpw(data.password.encode(), password.encode()):
             set_jwt_pair(user.name, user.id, response)
 
-            return True
+            return user
         raise UserPermissionError
 
     async def jwt_refresh(self, response: Response, user_id: int) -> bool:

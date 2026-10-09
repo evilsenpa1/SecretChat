@@ -1,5 +1,5 @@
 import logging
-from typing import Sequence
+from collections.abc import Collection
 
 from fastapi import Depends
 from sqlalchemy import select
@@ -19,13 +19,14 @@ class UserRepository:
         self.session = session
         self.model = UserModel
 
-    async def create(self, name: str, password: str) -> bool:
+    async def create(self, name: str, password: str) -> UserModel:
         try:
-            self.session.add(self.model(name=name, password=password))
+            user = self.model(name=name, password=password)
+            self.session.add(user)
             await self.session.commit()
         except IntegrityError as err:
             raise UserIntegrityError from err
-        return True
+        return user
 
     async def get(self, id: int) -> UserModel:
         user = await self.session.get(self.model, id)
@@ -33,10 +34,8 @@ class UserRepository:
             raise UserNotFoundError
         return user
 
-    async def get_many(self, ids: Sequence[int]) -> list[UserModel]:
-        result = await self.session.execute(
-            select(self.model).where(self.model.id.in_(ids))
-        )
+    async def get_many(self, ids: Collection[int]) -> list[UserModel]:
+        result = await self.session.execute(select(self.model).where(self.model.id.in_(ids)))
         result = list(result.scalars().all())
 
         if len(result) != len(ids):
@@ -50,8 +49,14 @@ class UserRepository:
     async def get_filter(self, **kwargs) -> UserModel | None:
         user = await self.session.execute(select(self.model).filter_by(**kwargs))
 
-        user = user.scalar_one_or_none()
-        return user
+        return user.scalar_one_or_none()
+
+    async def delete(self, user: UserModel) -> bool:
+        await self.session.delete(user)
+        await self.session.flush()
+        await self.session.commit()
+
+        return True
 
 
 def get_user_repository(session: AsyncSession = Depends(get_session)) -> UserRepository:

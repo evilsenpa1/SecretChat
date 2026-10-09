@@ -20,12 +20,12 @@ class Base(DeclarativeBase):
     pass
 
 
-async def get_session() -> AsyncGenerator[AsyncSession, None]:
+async def get_session() -> AsyncGenerator[AsyncSession]:
     async with SessionLocal() as session:
         yield session
 
 
 @asynccontextmanager
-async def get_session_ctx() -> AsyncGenerator[AsyncSession, None]:
+async def get_session_ctx() -> AsyncGenerator[AsyncSession]:
     async with SessionLocal() as session:
         yield session

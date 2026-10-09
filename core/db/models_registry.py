@@ -4,6 +4,7 @@ from chat.models import (
     ChatUserAssociation,
     MessageModel,
     ChatInviteModel,
+    ChatKeyModel,
 )
 
 from users.models import UserModel

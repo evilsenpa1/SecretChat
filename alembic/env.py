@@ -1,4 +1,4 @@
-import asyncio
+import asyncio  # noqa: I001
 from logging.config import fileConfig
 
 from sqlalchemy import pool
@@ -7,6 +7,8 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
 from core.settings import get_settings
+
+import core.db.models_registry  # noqa: F401
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -20,7 +22,6 @@ if config.config_file_name is not None:
 # add your model's MetaData object here
 # for 'autogenerate' support
 from core.db.base import Base
-from core.db import models_registry
 
 target_metadata = Base.metadata
 # target_metadata = None

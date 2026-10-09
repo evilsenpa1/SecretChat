@@ -5,6 +5,7 @@ import {
   decryptChatKey,
   decryptMessage,
   deleteChatKeyPair,
+  deleteChatKeyPairs,
   encryptMessage,
   exportPublicKey,
   getChatKeyPair,
@@ -18,8 +19,339 @@ const API_HOST = window.location.hostname || "127.0.0.1";
 const API_URL = `http://${API_HOST}:8080`;
 const DEFAULT_URL = `ws://${API_HOST}:8080/ws`;
 
-function formatTime() {
-  return new Intl.DateTimeFormat("ru-RU", {
+const translations = {
+  en: {
+    "WEBSOCKET LAB · LOCAL CLIENT": "WEBSOCKET LAB · LOCAL CLIENT",
+    "COOKIE AUTH": "COOKIE AUTH",
+    "online": "online",
+    "connecting": "connecting",
+    "offline": "offline",
+    "SYNCING": "SYNCING",
+    "NO SIGNAL": "NO SIGNAL",
+    "Готовим уникальные ключи чата...": "Preparing unique chat keys...",
+    "Web Crypto недоступен: нужен HTTPS или localhost": "Web Crypto is unavailable. HTTPS or localhost is required.",
+    "RSA-OAEP 2048 + AES-256-GCM готовы для каждого чата": "RSA-OAEP 2048 + AES-256-GCM are ready for each chat",
+    "Приватный RSA-ключ этого чата не загружен": "This chat's private RSA key is not loaded",
+    "Не удалось загрузить ключи чата ({status})": "Could not load chat keys ({status})",
+    "Приватный RSA-ключ не соответствует ключу этой версии": "The private RSA key does not match this key version",
+    "Для этой учётной записи нет AES-ключа версии {version}": "No AES key for version {version} is available for this account",
+    "чата": "chat",
+    "{reason}. Проверьте восстановление RSA-ключа и ротацию ключей.": "{reason}. Check RSA key recovery and key rotation.",
+    "Не удалось загрузить сообщения": "Could not load messages",
+    "Сессия истекла, войдите снова": "Your session expired. Please sign in again.",
+    "Не удалось загрузить профиль пользователя: сессия истекла": "Could not load your profile: session expired",
+    "Не удалось загрузить профиль пользователя ({status})": "Could not load your profile ({status})",
+    "Не удалось загрузить профиль пользователя": "Could not load your profile",
+    "Не удалось загрузить чаты": "Could not load chats",
+    "В списке участников нет вашего публичного ключа": "Your public key is missing from the member list",
+    "Не удалось загрузить приглашения": "Could not load invitations",
+    "Приглашать участников может только владелец чата": "Only the chat owner can invite members",
+    "Укажите корректный ID пользователя": "Enter a valid user ID",
+    "Этот пользователь уже состоит в чате": "This user is already a member of the chat",
+    "Отправляем приглашение...": "Sending invitation...",
+    "Не удалось отправить приглашение": "Could not send invitation",
+    "Приглашение пользователю #{userId} отправлено": "Invitation sent to user #{userId}",
+    "Удалять участников может только владелец чата": "Only the chat owner can remove members",
+    "Удалить {member} из чата «{chat}»?": "Remove {member} from chat “{chat}”?",
+    "Обновляем ключ чата «{chat}»...": "Updating the key for chat “{chat}”...",
+    "В чате должен остаться его владелец": "The chat owner must remain in the chat",
+    "Не удалось удалить участника": "Could not remove member",
+    "{member} удалён из чата; ключ обновлён": "{member} was removed from the chat; the key was updated",
+    "{member} удалён из чата #{chatId}": "{member} was removed from chat #{chatId}",
+    "Профиль ещё не загружен. Обновите страницу или войдите снова.": "Your profile has not loaded yet. Refresh the page or sign in again.",
+    "Подготавливаем ключи чата...": "Preparing chat keys...",
+    "Не удалось загрузить данные чата": "Could not load chat details",
+    "Вы уже состоите в этом чате": "You are already a member of this chat",
+    "Участник {member} (#{memberId}) имеет некорректный RSA-ключ. ": "Member {member} (#{memberId}) has an invalid RSA key. ",
+    "Чат создан с тестовой заглушкой ключа; его нужно пересоздать с фронтенда.": "The chat was created with a placeholder key. Recreate it from the frontend.",
+    "Не удалось принять приглашение": "Could not accept invitation",
+    "Вы присоединились к чату «{chat}»": "You joined chat “{chat}”",
+    "Отклоняем приглашение...": "Declining invitation...",
+    "Не удалось отклонить приглашение": "Could not decline invitation",
+    "Приглашение отклонено": "Invitation declined",
+    "Создаём...": "Creating...",
+    "Сессия истекла": "Session expired",
+    "Не удалось создать чат": "Could not create chat",
+    "Чат «{chat}» создан": "Chat “{chat}” created",
+    "Создан чат #{chatId}: {chat}": "Created chat #{chatId}: {chat}",
+    "Удалить чат может только его владелец": "Only the chat owner can delete it",
+    "Удалить чат «{chat}»? Это действие нельзя отменить.": "Delete chat “{chat}”? This action cannot be undone.",
+    "Удаляем чат «{chat}»...": "Deleting chat “{chat}”...",
+    "Не удалось удалить чат": "Could not delete chat",
+    "Чат «{chat}» удалён": "Chat “{chat}” deleted",
+    "Удалён чат #{chatId}: {chat}": "Deleted chat #{chatId}: {chat}",
+    "Обновляем метаданные...": "Updating chat details...",
+    "Не удалось обновить метаданные": "Could not update chat details",
+    "Метаданные обновлены": "Chat details updated",
+    "Входим...": "Signing in...",
+    "Неверное имя или пароль": "Incorrect username or password",
+    "Вход выполнен": "Signed in successfully",
+    "Токены получены в cookie": "Authentication cookies received",
+    "Создаём аккаунт...": "Creating account...",
+    "Пользователь с таким именем уже существует": "A user with this name already exists",
+    "Проверьте имя и пароль": "Check the username and password",
+    "Не удалось создать аккаунт ({status})": "Could not create account ({status})",
+    "Аккаунт создан. Теперь войдите.": "Account created. You can now sign in.",
+    "Удалить аккаунт без возможности восстановления? Локальные RSA-ключи этого аккаунта тоже будут удалены.": "Delete your account permanently? This account's local RSA keys will also be deleted.",
+    "Удаляем аккаунт...": "Deleting account...",
+    "Не удалось удалить аккаунт ({status})": "Could not delete account ({status})",
+    "Аккаунт удалён, но локальные ключи удалить не удалось": "Account deleted, but local keys could not be removed",
+    "Аккаунт удалён": "Account deleted",
+    "Подключение к {url}": "Connecting to {url}",
+    "Соединение установлено": "Connection established",
+    "Ошибка WebSocket": "WebSocket error",
+    "Соединение закрыто · {code}{reason}": "Connection closed · {code}{reason}",
+    "Не удалось определить версию AES-ключа чата": "Could not determine the chat AES key version",
+    "AES-ключ версии {version} недоступен": "AES key version {version} is unavailable",
+    "Создайте аккаунт для защищённого общения.": "Create an account for secure conversations.",
+    "Войдите, чтобы загрузить ваши чаты.": "Sign in to load your chats.",
+    "Регистрация": "Sign up",
+    "Вход": "Sign in",
+    "Имя пользователя": "Username",
+    "Пароль": "Password",
+    "Подождите...": "Please wait...",
+    "Создать аккаунт": "Create account",
+    "Уже есть аккаунт? Войти": "Already have an account? Sign in",
+    "Нет аккаунта? Зарегистрироваться": "No account? Sign up",
+    "Небольшая лаборатория для проверки входящих и исходящих кадров.": "A small lab for inspecting incoming and outgoing frames.",
+    "Аккаунт:": "Account:",
+    "guest": "guest",
+    "Удаляем...": "Deleting...",
+    "Удалить аккаунт": "Delete account",
+    "Ваши чаты": "Your chats",
+    "Загрузка чатов...": "Loading chats...",
+    "Чаты не найдены": "No chats found",
+    "{count} members": "{count} members",
+    "Удалить чат {chat}": "Delete chat {chat}",
+    "Создать чат": "Create chat",
+    "Название чата": "Chat name",
+    "Создать": "Create",
+    "Приглашения": "Invitations",
+    "Обновить приглашения": "Refresh invitations",
+    "Обновить": "Refresh",
+    "Загружаем приглашения...": "Loading invitations...",
+    "Новых приглашений нет": "No new invitations",
+    "Чат #{chatId} · приглашение #{inviteId}": "Chat #{chatId} · invitation #{inviteId}",
+    "Загружаем профиль": "Loading profile",
+    "Не удалось получить ID аккаунта": "Could not get account ID",
+    "Принять приглашение": "Accept invitation",
+    "Принять": "Accept",
+    "Отклонить": "Decline",
+    "Не удалось загрузить ID аккаунта. Обновите страницу или войдите снова.": "Could not load account ID. Refresh the page or sign in again.",
+    "Сообщения чата": "Chat messages",
+    "Выберите чат": "Select a chat",
+    "Чат #{chatId} · {count} участников": "Chat #{chatId} · {count} members",
+    "История сообщений": "Message history",
+    "Очистить": "Clear",
+    "Загрузка сообщений": "Loading messages",
+    "Пока тихо": "Nothing here yet",
+    "Отправьте первое сообщение.": "Send the first message.",
+    "ВХОДЯЩЕЕ": "INCOMING",
+    "ВЫ": "YOU",
+    "Данные пакета": "Packet data",
+    "Сообщение": "Message",
+    "Напишите сообщение...": "Write a message...",
+    "Сначала выберите чат": "Select a chat first",
+    "Нет соединения": "Disconnected",
+    "Отправить": "Send",
+    "Участники": "Members",
+    "Участники выбранного чата": "Selected chat members",
+    "Выберите чат, чтобы увидеть участников": "Select a chat to see its members",
+    "ВЛАДЕЛЕЦ": "OWNER",
+    "Тестовая комната": "Test room",
+    "Удалить {member} из чата": "Remove {member} from chat",
+    "Удалить участника": "Remove member",
+    "Добавить участника": "Add a member",
+    "ID пользователя": "User ID",
+    "Например, 12": "For example, 12",
+    "Отправка...": "Sending...",
+    "Отправить приглашение": "Send invitation",
+    "Настройки чата": "Chat settings",
+    "Название": "Name",
+    "Новый ID владельца": "New owner ID",
+    "Сохранить": "Save",
+    "Выберите язык": "Choose language",
+  },
+  uk: {
+    "WEBSOCKET LAB · LOCAL CLIENT": "ЛАБОРАТОРІЯ WEBSOCKET · ЛОКАЛЬНИЙ КЛІЄНТ",
+    "COOKIE AUTH": "COOKIE-АВТЕНТИФІКАЦІЯ",
+    "online": "у мережі",
+    "connecting": "з’єднання",
+    "offline": "не в мережі",
+    "SYNCING": "СИНХРОНІЗАЦІЯ",
+    "NO SIGNAL": "НЕМАЄ СИГНАЛУ",
+    "Готовим уникальные ключи чата...": "Готуємо унікальні ключі чату...",
+    "Web Crypto недоступен: нужен HTTPS или localhost": "Web Crypto недоступний: потрібен HTTPS або localhost",
+    "RSA-OAEP 2048 + AES-256-GCM готовы для каждого чата": "RSA-OAEP 2048 + AES-256-GCM готові для кожного чату",
+    "Приватный RSA-ключ этого чата не загружен": "Приватний RSA-ключ цього чату не завантажено",
+    "Не удалось загрузить ключи чата ({status})": "Не вдалося завантажити ключі чату ({status})",
+    "Приватный RSA-ключ не соответствует ключу этой версии": "Приватний RSA-ключ не відповідає ключу цієї версії",
+    "Для этой учётной записи нет AES-ключа версии {version}": "Для цього облікового запису немає AES-ключа версії {version}",
+    "чата": "чату",
+    "{reason}. Проверьте восстановление RSA-ключа и ротацию ключей.": "{reason}. Перевірте відновлення RSA-ключа та ротацію ключів.",
+    "Не удалось загрузить сообщения": "Не вдалося завантажити повідомлення",
+    "Сессия истекла, войдите снова": "Сеанс завершився. Увійдіть знову.",
+    "Не удалось загрузить профиль пользователя: сессия истекла": "Не вдалося завантажити профіль: сеанс завершився",
+    "Не удалось загрузить профиль пользователя ({status})": "Не вдалося завантажити профіль користувача ({status})",
+    "Не удалось загрузить профиль пользователя": "Не вдалося завантажити профіль користувача",
+    "Не удалось загрузить чаты": "Не вдалося завантажити чати",
+    "В списке участников нет вашего публичного ключа": "У списку учасників немає вашого відкритого ключа",
+    "Не удалось загрузить приглашения": "Не вдалося завантажити запрошення",
+    "Приглашать участников может только владелец чата": "Запрошувати учасників може лише власник чату",
+    "Укажите корректный ID пользователя": "Вкажіть коректний ID користувача",
+    "Этот пользователь уже состоит в чате": "Цей користувач уже є учасником чату",
+    "Отправляем приглашение...": "Надсилаємо запрошення...",
+    "Не удалось отправить приглашение": "Не вдалося надіслати запрошення",
+    "Приглашение пользователю #{userId} отправлено": "Запрошення користувачу #{userId} надіслано",
+    "Удалять участников может только владелец чата": "Видаляти учасників може лише власник чату",
+    "Удалить {member} из чата «{chat}»?": "Видалити {member} із чату «{chat}»?",
+    "Обновляем ключ чата «{chat}»...": "Оновлюємо ключ чату «{chat}»...",
+    "В чате должен остаться его владелец": "Власник має залишитися в чаті",
+    "Не удалось удалить участника": "Не вдалося видалити учасника",
+    "{member} удалён из чата; ключ обновлён": "{member} видалено з чату; ключ оновлено",
+    "{member} удалён из чата #{chatId}": "{member} видалено з чату #{chatId}",
+    "Профиль ещё не загружен. Обновите страницу или войдите снова.": "Профіль ще не завантажено. Оновіть сторінку або увійдіть знову.",
+    "Подготавливаем ключи чата...": "Готуємо ключі чату...",
+    "Не удалось загрузить данные чата": "Не вдалося завантажити дані чату",
+    "Вы уже состоите в этом чате": "Ви вже є учасником цього чату",
+    "Участник {member} (#{memberId}) имеет некорректный RSA-ключ. ": "Учасник {member} (#{memberId}) має некоректний RSA-ключ. ",
+    "Чат создан с тестовой заглушкой ключа; его нужно пересоздать с фронтенда.": "Чат створено з тестовим ключем-заглушкою; його потрібно створити заново через фронтенд.",
+    "Не удалось принять приглашение": "Не вдалося прийняти запрошення",
+    "Вы присоединились к чату «{chat}»": "Ви приєдналися до чату «{chat}»",
+    "Отклоняем приглашение...": "Відхиляємо запрошення...",
+    "Не удалось отклонить приглашение": "Не вдалося відхилити запрошення",
+    "Приглашение отклонено": "Запрошення відхилено",
+    "Создаём...": "Створюємо...",
+    "Сессия истекла": "Сеанс завершився",
+    "Не удалось создать чат": "Не вдалося створити чат",
+    "Чат «{chat}» создан": "Чат «{chat}» створено",
+    "Создан чат #{chatId}: {chat}": "Створено чат #{chatId}: {chat}",
+    "Удалить чат может только его владелец": "Видалити чат може лише його власник",
+    "Удалить чат «{chat}»? Это действие нельзя отменить.": "Видалити чат «{chat}»? Цю дію неможливо скасувати.",
+    "Удаляем чат «{chat}»...": "Видаляємо чат «{chat}»...",
+    "Не удалось удалить чат": "Не вдалося видалити чат",
+    "Чат «{chat}» удалён": "Чат «{chat}» видалено",
+    "Удалён чат #{chatId}: {chat}": "Видалено чат #{chatId}: {chat}",
+    "Обновляем метаданные...": "Оновлюємо дані чату...",
+    "Не удалось обновить метаданные": "Не вдалося оновити дані чату",
+    "Метаданные обновлены": "Дані чату оновлено",
+    "Входим...": "Входимо...",
+    "Неверное имя или пароль": "Неправильне ім’я або пароль",
+    "Вход выполнен": "Вхід виконано",
+    "Токены получены в cookie": "Токени отримано в cookie",
+    "Создаём аккаунт...": "Створюємо обліковий запис...",
+    "Пользователь с таким именем уже существует": "Користувач із таким ім’ям уже існує",
+    "Проверьте имя и пароль": "Перевірте ім’я та пароль",
+    "Не удалось создать аккаунт ({status})": "Не вдалося створити обліковий запис ({status})",
+    "Аккаунт создан. Теперь войдите.": "Обліковий запис створено. Тепер увійдіть.",
+    "Удалить аккаунт без возможности восстановления? Локальные RSA-ключи этого аккаунта тоже будут удалены.": "Видалити обліковий запис назавжди? Локальні RSA-ключі цього облікового запису також буде видалено.",
+    "Удаляем аккаунт...": "Видаляємо обліковий запис...",
+    "Не удалось удалить аккаунт ({status})": "Не вдалося видалити обліковий запис ({status})",
+    "Аккаунт удалён, но локальные ключи удалить не удалось": "Обліковий запис видалено, але не вдалося видалити локальні ключі",
+    "Аккаунт удалён": "Обліковий запис видалено",
+    "Подключение к {url}": "Підключення до {url}",
+    "Соединение установлено": "З’єднання встановлено",
+    "Ошибка WebSocket": "Помилка WebSocket",
+    "Соединение закрыто · {code}{reason}": "З’єднання закрито · {code}{reason}",
+    "Не удалось определить версию AES-ключа чата": "Не вдалося визначити версію AES-ключа чату",
+    "AES-ключ версии {version} недоступен": "AES-ключ версії {version} недоступний",
+    "Создайте аккаунт для защищённого общения.": "Створіть обліковий запис для захищеного спілкування.",
+    "Войдите, чтобы загрузить ваши чаты.": "Увійдіть, щоб завантажити ваші чати.",
+    "Регистрация": "Реєстрація",
+    "Вход": "Вхід",
+    "Имя пользователя": "Ім’я користувача",
+    "Пароль": "Пароль",
+    "Подождите...": "Зачекайте...",
+    "Создать аккаунт": "Створити обліковий запис",
+    "Уже есть аккаунт? Войти": "Вже маєте обліковий запис? Увійти",
+    "Нет аккаунта? Зарегистрироваться": "Немає облікового запису? Зареєструватися",
+    "Небольшая лаборатория для проверки входящих и исходящих кадров.": "Невелика лабораторія для перегляду вхідних і вихідних кадрів.",
+    "Аккаунт:": "Обліковий запис:",
+    "guest": "гість",
+    "Удаляем...": "Видаляємо...",
+    "Удалить аккаунт": "Видалити обліковий запис",
+    "Ваши чаты": "Ваші чати",
+    "Загрузка чатов...": "Завантаження чатів...",
+    "Чаты не найдены": "Чатів не знайдено",
+    "{count} members": "{count} учасн.",
+    "Удалить чат {chat}": "Видалити чат {chat}",
+    "Создать чат": "Створити чат",
+    "Название чата": "Назва чату",
+    "Создать": "Створити",
+    "Приглашения": "Запрошення",
+    "Обновить приглашения": "Оновити запрошення",
+    "Обновить": "Оновити",
+    "Загружаем приглашения...": "Завантажуємо запрошення...",
+    "Новых приглашений нет": "Нових запрошень немає",
+    "Чат #{chatId} · приглашение #{inviteId}": "Чат #{chatId} · запрошення #{inviteId}",
+    "Загружаем профиль": "Завантажуємо профіль",
+    "Не удалось получить ID аккаунта": "Не вдалося отримати ID облікового запису",
+    "Принять приглашение": "Прийняти запрошення",
+    "Принять": "Прийняти",
+    "Отклонить": "Відхилити",
+    "Не удалось загрузить ID аккаунта. Обновите страницу или войдите снова.": "Не вдалося завантажити ID облікового запису. Оновіть сторінку або увійдіть знову.",
+    "Сообщения чата": "Повідомлення чату",
+    "Выберите чат": "Оберіть чат",
+    "Чат #{chatId} · {count} участников": "Чат #{chatId} · {count} учасників",
+    "История сообщений": "Історія повідомлень",
+    "Очистить": "Очистити",
+    "Загрузка сообщений": "Завантаження повідомлень",
+    "Пока тихо": "Поки тихо",
+    "Отправьте первое сообщение.": "Надішліть перше повідомлення.",
+    "ВХОДЯЩЕЕ": "ВХІДНЕ",
+    "ВЫ": "ВИ",
+    "Данные пакета": "Дані пакета",
+    "Сообщение": "Повідомлення",
+    "Напишите сообщение...": "Напишіть повідомлення...",
+    "Сначала выберите чат": "Спочатку оберіть чат",
+    "Нет соединения": "Немає з’єднання",
+    "Отправить": "Надіслати",
+    "Участники": "Учасники",
+    "Участники выбранного чата": "Учасники вибраного чату",
+    "Выберите чат, чтобы увидеть участников": "Оберіть чат, щоб побачити учасників",
+    "ВЛАДЕЛЕЦ": "ВЛАСНИК",
+    "Тестовая комната": "Тестова кімната",
+    "Удалить {member} из чата": "Видалити {member} з чату",
+    "Удалить участника": "Видалити учасника",
+    "Добавить участника": "Додати учасника",
+    "ID пользователя": "ID користувача",
+    "Например, 12": "Наприклад, 12",
+    "Отправка...": "Надсилання...",
+    "Отправить приглашение": "Надіслати запрошення",
+    "Настройки чата": "Налаштування чату",
+    "Название": "Назва",
+    "Новый ID владельца": "Новий ID власника",
+    "Сохранить": "Зберегти",
+    "Выберите язык": "Оберіть мову",
+  },
+};
+
+function translate(language, source, values = {}) {
+  const translated = translations[language][source] || source;
+  return translated.replace(/\{(\w+)\}/g, (_, key) => String(values[key] ?? ""));
+}
+
+function LanguageSwitcher({ language, onChange }) {
+  return (
+    <div className="language-switch" role="group" aria-label={language === "en" ? "Choose language" : "Оберіть мову"}>
+      {["en", "uk"].map((option) => (
+        <button
+          className={language === option ? "active" : ""}
+          type="button"
+          key={option}
+          aria-pressed={language === option}
+          title={option === "en" ? "English" : "Українська"}
+          onClick={() => onChange(option)}
+        >
+          {option === "en" ? "EN" : "UA"}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function formatTime(language) {
+  return new Intl.DateTimeFormat(language === "en" ? "en-GB" : "uk-UA", {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
@@ -37,7 +369,7 @@ let refreshRequest;
 
 async function refreshSession() {
   if (!refreshRequest) {
-    refreshRequest = fetch(`${API_URL}/auth/refresh`, {
+    refreshRequest = fetch(`${API_URL}/users/refresh-jwt`, {
       method: "POST",
       credentials: "include",
       headers: { "X-CSRF-TOKEN": getCookie("csrf_refresh_token") },
@@ -75,6 +407,8 @@ function getMessageBody(value) {
 }
 
 function App() {
+  const [language, setLanguage] = useState(() => localStorage.getItem("secret-chat-language") === "en" ? "en" : "uk");
+  const t = (source, values) => translate(language, source, values);
   const socketRef = useRef(null);
   const connectAttemptRef = useRef(false);
   const chatRsaKeysRef = useRef(new Map());
@@ -86,6 +420,8 @@ function App() {
   const [name, setName] = useState(() => localStorage.getItem("secret-chat-user") || "");
   const [password, setPassword] = useState("");
   const [authStatus, setAuthStatus] = useState("");
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [authSubmitting, setAuthSubmitting] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(() => Boolean(localStorage.getItem("secret-chat-user")));
   const [chats, setChats] = useState([]);
   const [selectedChatId, setSelectedChatId] = useState("");
@@ -93,13 +429,14 @@ function App() {
   const [chatsLoading, setChatsLoading] = useState(false);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [newChatName, setNewChatName] = useState("");
-  const [cryptoStatus, setCryptoStatus] = useState("Готовим уникальные ключи чата...");
+  const [cryptoStatus, setCryptoStatus] = useState(() => t("Готовим уникальные ключи чата..."));
   const [chatMetaName, setChatMetaName] = useState("");
   const [chatMetaOwnerId, setChatMetaOwnerId] = useState("");
   const [newMemberId, setNewMemberId] = useState("");
   const [deletingMemberId, setDeletingMemberId] = useState("");
   const [currentUserId, setCurrentUserId] = useState(null);
   const [profileLoading, setProfileLoading] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
   const [invites, setInvites] = useState([]);
   const [invitesLoading, setInvitesLoading] = useState(false);
   const [inviteStatus, setInviteStatus] = useState("");
@@ -113,17 +450,28 @@ function App() {
   const visibleEvents = events.filter(
     (event) => event.chatId == null || event.chatId === selectedChatId,
   );
+  const changeLanguage = (nextLanguage) => {
+    setLanguage(nextLanguage);
+    setAuthStatus("");
+    setChatStatus("");
+    setInviteStatus("");
+  };
+
+  useEffect(() => {
+    localStorage.setItem("secret-chat-language", language);
+    document.documentElement.lang = language;
+  }, [language]);
 
   useEffect(() => {
     if (typeof crypto?.subtle === "undefined") {
-      setCryptoStatus("Web Crypto недоступен: нужен HTTPS или localhost");
+      setCryptoStatus(t("Web Crypto недоступен: нужен HTTPS или localhost"));
       return;
     }
-    setCryptoStatus("RSA-OAEP 2048 + AES-256-GCM готовы для каждого чата");
-  }, []);
+    setCryptoStatus(t("RSA-OAEP 2048 + AES-256-GCM готовы для каждого чата"));
+  }, [language]);
 
   const addEvent = (type, value, extra = {}) => setEvents((current) => [
-    ...current.slice(-49), { id: crypto.randomUUID(), type, value, time: formatTime(), ...extra },
+    ...current.slice(-49), { id: crypto.randomUUID(), type, value, time: formatTime(language), ...extra },
   ]);
 
   const clearInMemoryChatState = () => {
@@ -147,11 +495,11 @@ function App() {
     const normalizedChatId = String(chatId);
     const currentKeys = chatKeysRef.current.get(normalizedChatId) || new Map();
     const rsaPair = chatRsaKeysRef.current.get(normalizedChatId);
-    if (!rsaPair) throw new Error("Приватный RSA-ключ этого чата не загружен");
+    if (!rsaPair) throw new Error(t("Приватный RSA-ключ этого чата не загружен"));
 
-    const response = await apiFetch(`${API_URL}/chat/${chatId}/keys`);
+    const response = await apiFetch(`${API_URL}/chats/${chatId}/keys`);
     if (!response.ok) {
-      throw new Error(`Не удалось загрузить ключи чата (${response.status})`);
+      throw new Error(t("Не удалось загрузить ключи чата ({status})", { status: response.status }));
     }
     const keys = await response.json();
     const updatedKeys = new Map(currentKeys);
@@ -171,9 +519,11 @@ function App() {
       : Number(expectedVersion);
     if (!Number.isFinite(versionToUse) || !updatedKeys.has(versionToUse)) {
       const reason = expectedKeyFailed
-        ? "Приватный RSA-ключ не соответствует ключу этой версии"
-        : `Для этой учётной записи нет AES-ключа версии ${expectedVersion ?? "чата"}`;
-      throw new Error(`${reason}. Проверьте восстановление RSA-ключа и ротацию ключей.`);
+        ? t("Приватный RSA-ключ не соответствует ключу этой версии")
+        : t("Для этой учётной записи нет AES-ключа версии {version}", {
+          version: expectedVersion ?? t("чата"),
+        });
+      throw new Error(t("{reason}. Проверьте восстановление RSA-ключа и ротацию ключей.", { reason }));
     }
 
     chatKeyVersionsRef.current.set(normalizedChatId, versionToUse);
@@ -242,7 +592,7 @@ function App() {
             id: crypto.randomUUID(),
             type: "in",
             value: JSON.stringify(displayMessage, null, 2),
-            time: formatTime(),
+            time: formatTime(language),
             chatId: String(message.data.chat_id),
             messageId: String(message.data.id),
             serverMessage: true,
@@ -277,11 +627,11 @@ function App() {
     messagesRequestRef.current = requestId;
     setMessagesLoading(true);
     try {
-      const response = await apiFetch(`${API_URL}/chat/${chatId}/messages`, {
+      const response = await apiFetch(`${API_URL}/chats/${chatId}/messages`, {
         credentials: "include",
       });
       if (!response.ok) {
-        throw new Error("Не удалось загрузить сообщения");
+        throw new Error(t("Не удалось загрузить сообщения"));
       }
 
       const messages = await response.json();
@@ -294,7 +644,7 @@ function App() {
           data: message,
         }, null, 2),
         time: message.created_at
-          ? new Intl.DateTimeFormat("ru-RU", {
+          ? new Intl.DateTimeFormat(language === "en" ? "en-GB" : "uk-UA", {
             hour: "2-digit",
             minute: "2-digit",
             second: "2-digit",
@@ -352,21 +702,21 @@ function App() {
   const loadProfile = async () => {
     setProfileLoading(true);
     try {
-      const response = await apiFetch(`${API_URL}/user/me`);
+      const response = await apiFetch(`${API_URL}/users/me`);
       if (response.status === 401) {
         clearInMemoryChatState();
         localStorage.removeItem("secret-chat-user");
         setName("");
         setIsAuthenticated(false);
-        setAuthStatus("Сессия истекла, войдите снова");
-        throw new Error("Не удалось загрузить профиль пользователя: сессия истекла");
+        setAuthStatus(t("Сессия истекла, войдите снова"));
+        throw new Error(t("Не удалось загрузить профиль пользователя: сессия истекла"));
       }
       if (!response.ok) {
-        throw new Error(`Не удалось загрузить профиль пользователя (${response.status})`);
+        throw new Error(t("Не удалось загрузить профиль пользователя ({status})", { status: response.status }));
       }
       const profile = await response.json();
       setCurrentUserId(profile.id);
-      setInviteStatus((current) => current.startsWith("Не удалось загрузить профиль пользователя") ? "" : current);
+      setInviteStatus((current) => current.startsWith(t("Не удалось загрузить профиль пользователя")) ? "" : current);
       return profile;
     } catch (error) {
       setCurrentUserId(null);
@@ -380,17 +730,17 @@ function App() {
   const loadChats = async () => {
     setChatsLoading(true);
     try {
-      const response = await apiFetch(`${API_URL}/chat`);
+      const response = await apiFetch(`${API_URL}/chats`);
       if (!response.ok) {
         if (response.status === 401) {
           clearInMemoryChatState();
           localStorage.removeItem("secret-chat-user");
           setName("");
           setIsAuthenticated(false);
-          setAuthStatus("Сессия истекла, войдите снова");
-          throw new Error("Сессия истекла, войдите снова");
+          setAuthStatus(t("Сессия истекла, войдите снова"));
+          throw new Error(t("Сессия истекла, войдите снова"));
         }
-        throw new Error("Не удалось загрузить чаты");
+        throw new Error(t("Не удалось загрузить чаты"));
       }
       const chatList = await response.json();
       setChats(chatList);
@@ -400,7 +750,7 @@ function App() {
           const ownMember = chat.members?.find((member) => member.id === currentUserId)
             || chat.members?.find((member) => member.name === name);
           if (!ownMember?.public_key) {
-            throw new Error("В списке участников нет вашего публичного ключа");
+            throw new Error(t("В списке участников нет вашего публичного ключа"));
           }
           const rsaPair = await getChatKeyPair(chat.id, name, ownMember?.public_key);
           chatRsaKeysRef.current.set(String(chat.id), rsaPair);
@@ -424,8 +774,8 @@ function App() {
   const loadInvites = async () => {
     setInvitesLoading(true);
     try {
-      const response = await apiFetch(`${API_URL}/chat/invites/me`);
-      if (!response.ok) throw new Error("Не удалось загрузить приглашения");
+      const response = await apiFetch(`${API_URL}/chats/invites/me`);
+      if (!response.ok) throw new Error(t("Не удалось загрузить приглашения"));
       setInvites(await response.json());
     } catch (error) {
       setInviteStatus(error.message);
@@ -438,24 +788,24 @@ function App() {
     event.preventDefault();
     if (!selectedChat || !newMemberId) return;
     if (selectedChat.owner?.id !== currentUserId) {
-      setInviteStatus("Приглашать участников может только владелец чата");
+      setInviteStatus(t("Приглашать участников может только владелец чата"));
       return;
     }
 
     const memberId = Number(newMemberId);
     if (!Number.isSafeInteger(memberId) || memberId <= 0) {
-      setInviteStatus("Укажите корректный ID пользователя");
+      setInviteStatus(t("Укажите корректный ID пользователя"));
       return;
     }
     if (selectedChat.members?.some((member) => member.id === memberId)) {
-      setInviteStatus("Этот пользователь уже состоит в чате");
+      setInviteStatus(t("Этот пользователь уже состоит в чате"));
       return;
     }
 
     setInviteSubmitting(true);
-    setInviteStatus("Отправляем приглашение...");
+    setInviteStatus(t("Отправляем приглашение..."));
     try {
-      const response = await apiFetch(`${API_URL}/chat/${selectedChat.id}/invites/`, {
+      const response = await apiFetch(`${API_URL}/chats/${selectedChat.id}/invites`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -466,11 +816,11 @@ function App() {
       });
       if (!response.ok) {
         throw new Error(response.status === 403
-          ? "Приглашать участников может только владелец чата"
-          : "Не удалось отправить приглашение");
+          ? t("Приглашать участников может только владелец чата")
+          : t("Не удалось отправить приглашение"));
       }
       setNewMemberId("");
-      setInviteStatus(`Приглашение пользователю #${memberId} отправлено`);
+      setInviteStatus(t("Приглашение пользователю #{userId} отправлено", { userId: memberId }));
     } catch (error) {
       setInviteStatus(error.message);
     } finally {
@@ -480,18 +830,18 @@ function App() {
 
   const deleteMember = async (member) => {
     if (!selectedChat || selectedChat.owner?.id !== currentUserId) {
-      setChatStatus("Удалять участников может только владелец чата");
+      setChatStatus(t("Удалять участников может только владелец чата"));
       return;
     }
     if (member.id === selectedChat.owner.id) return;
-    if (!window.confirm(`Удалить ${member.name} из чата «${selectedChat.name}»?`)) return;
+    if (!window.confirm(t("Удалить {member} из чата «{chat}»?", { member: member.name, chat: selectedChat.name }))) return;
 
     setDeletingMemberId(String(member.id));
-    setChatStatus(`Обновляем ключ чата «${selectedChat.name}»...`);
+    setChatStatus(t("Обновляем ключ чата «{chat}»...", { chat: selectedChat.name }));
     try {
       const remainingMembers = selectedChat.members.filter((item) => item.id !== member.id);
       const ownerMember = remainingMembers.find((item) => item.id === currentUserId);
-      if (!ownerMember) throw new Error("В чате должен остаться его владелец");
+      if (!ownerMember) throw new Error(t("В чате должен остаться его владелец"));
 
       const ownerPublicKey = await importPublicKey(ownerMember.public_key);
       const { aesKey, encryptedKey } = await createChatKey(ownerPublicKey);
@@ -502,7 +852,7 @@ function App() {
           : await wrapChatKey(aesKey, await importPublicKey(item.public_key)),
       })));
       const response = await apiFetch(
-        `${API_URL}/chat/${selectedChat.id}/members?member_id=${member.id}`,
+        `${API_URL}/chats/${selectedChat.id}/members?member_id=${member.id}`,
         {
           method: "DELETE",
           headers: {
@@ -519,8 +869,8 @@ function App() {
       );
       if (!response.ok) {
         throw new Error(response.status === 403
-          ? "Удалять участников может только владелец чата"
-          : "Не удалось удалить участника");
+          ? t("Удалять участников может только владелец чата")
+          : t("Не удалось удалить участника"));
       }
 
       const updatedChat = await response.json();
@@ -530,8 +880,8 @@ function App() {
       chatKeysRef.current.set(normalizedChatId, updatedKeys);
       chatKeyVersionsRef.current.set(normalizedChatId, updatedChat.current_key_version);
       setChats((current) => current.map((item) => item.id === updatedChat.id ? updatedChat : item));
-      setChatStatus(`${member.name} удалён из чата; ключ обновлён`);
-      addEvent("system", `${member.name} удалён из чата #${updatedChat.id}`, {
+      setChatStatus(t("{member} удалён из чата; ключ обновлён", { member: member.name }));
+      addEvent("system", t("{member} удалён из чата #{chatId}", { member: member.name, chatId: updatedChat.id }), {
         chatId: normalizedChatId,
       });
     } catch (error) {
@@ -543,20 +893,20 @@ function App() {
 
   const acceptInvite = async (invite) => {
     if (!currentUserId) {
-      setInviteStatus("Профиль ещё не загружен. Обновите страницу или войдите снова.");
+      setInviteStatus(t("Профиль ещё не загружен. Обновите страницу или войдите снова."));
       return;
     }
 
     setInviteActionId(String(invite.id));
-    setInviteStatus("Подготавливаем ключи чата...");
+    setInviteStatus(t("Подготавливаем ключи чата..."));
     try {
-      const chatResponse = await apiFetch(`${API_URL}/chat/${invite.chat_id}`, {
+      const chatResponse = await apiFetch(`${API_URL}/chats/${invite.chat_id}`, {
         credentials: "include",
       });
-      if (!chatResponse.ok) throw new Error("Не удалось загрузить данные чата");
+      if (!chatResponse.ok) throw new Error(t("Не удалось загрузить данные чата"));
       const chat = await chatResponse.json();
       if (chat.members?.some((member) => member.id === currentUserId)) {
-        throw new Error("Вы уже состоите в этом чате");
+        throw new Error(t("Вы уже состоите в этом чате"));
       }
 
       const rsaPair = await getChatKeyPair(chat.id, name);
@@ -568,8 +918,8 @@ function App() {
           memberPublicKey = await importPublicKey(member.public_key);
         } catch {
           throw new Error(
-            `Участник ${member.name} (#${member.id}) имеет некорректный RSA-ключ. `
-            + "Чат создан с тестовой заглушкой ключа; его нужно пересоздать с фронтенда.",
+            t("Участник {member} (#{memberId}) имеет некорректный RSA-ключ. ", { member: member.name, memberId: member.id })
+            + t("Чат создан с тестовой заглушкой ключа; его нужно пересоздать с фронтенда."),
           );
         }
         return {
@@ -582,7 +932,7 @@ function App() {
         encrypted_key: await wrapChatKey(aesKey, rsaPair.publicKey),
       });
 
-      const response = await apiFetch(`${API_URL}/chat/invites/${invite.id}/accept`, {
+      const response = await apiFetch(`${API_URL}/chats/invites/${invite.id}/accept`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -595,7 +945,7 @@ function App() {
           wrapped_keys: wrappedKeys,
         }),
       });
-      if (!response.ok) throw new Error("Не удалось принять приглашение");
+      if (!response.ok) throw new Error(t("Не удалось принять приглашение"));
 
       const updatedChat = await response.json();
       chatRsaKeysRef.current.set(String(updatedChat.id), rsaPair);
@@ -610,7 +960,7 @@ function App() {
       ]);
       setInvites((current) => current.filter((item) => item.id !== invite.id));
       setSelectedChatId(String(updatedChat.id));
-      setInviteStatus(`Вы присоединились к чату «${updatedChat.name}»`);
+      setInviteStatus(t("Вы присоединились к чату «{chat}»", { chat: updatedChat.name }));
     } catch (error) {
       setInviteStatus(error.message);
     } finally {
@@ -620,16 +970,16 @@ function App() {
 
   const declineInvite = async (invite) => {
     setInviteActionId(String(invite.id));
-    setInviteStatus("Отклоняем приглашение...");
+    setInviteStatus(t("Отклоняем приглашение..."));
     try {
-      const response = await apiFetch(`${API_URL}/chat/invites/${invite.id}/decline/`, {
+      const response = await apiFetch(`${API_URL}/chats/invites/${invite.id}/decline`, {
         method: "DELETE",
         headers: { "X-CSRF-TOKEN": getCookie("csrf_access_token") },
         credentials: "include",
       });
-      if (!response.ok) throw new Error("Не удалось отклонить приглашение");
+      if (!response.ok) throw new Error(t("Не удалось отклонить приглашение"));
       setInvites((current) => current.filter((item) => item.id !== invite.id));
-      setInviteStatus("Приглашение отклонено");
+      setInviteStatus(t("Приглашение отклонено"));
     } catch (error) {
       setInviteStatus(error.message);
     } finally {
@@ -644,12 +994,12 @@ function App() {
 
     const temporaryChatId = `temp-${Date.now()}`;
 
-    setChatStatus("Создаём...");
+    setChatStatus(t("Создаём..."));
     try {
       const chatRsaPair = await getChatKeyPair(temporaryChatId, name);
       const publicKey = await exportPublicKey(chatRsaPair.publicKey);
       const { aesKey, encryptedKey } = await createChatKey(chatRsaPair.publicKey);
-      const response = await apiFetch(`${API_URL}/chat`, {
+      const response = await apiFetch(`${API_URL}/chats`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -663,7 +1013,7 @@ function App() {
         }),
       });
       if (!response.ok) {
-        throw new Error(response.status === 401 ? "Сессия истекла" : "Не удалось создать чат");
+        throw new Error(response.status === 401 ? t("Сессия истекла") : t("Не удалось создать чат"));
       }
       const chat = await response.json();
       await moveChatKeyPair(temporaryChatId, chat.id, name);
@@ -672,8 +1022,8 @@ function App() {
       setChats((current) => [...current, chat]);
       setSelectedChatId(String(chat.id));
       setNewChatName("");
-      setChatStatus(`Чат «${chat.name}» создан`);
-      addEvent("system", `Создан чат #${chat.id}: ${chat.name}`);
+      setChatStatus(t("Чат «{chat}» создан", { chat: chat.name }));
+      addEvent("system", t("Создан чат #{chatId}: {chat}", { chatId: chat.id, chat: chat.name }));
     } catch (error) {
       try {
         await deleteChatKeyPair(temporaryChatId, name);
@@ -687,24 +1037,24 @@ function App() {
 
   const deleteChat = async (chat) => {
     if (chat.owner?.id !== currentUserId) {
-      setChatStatus("Удалить чат может только его владелец");
+      setChatStatus(t("Удалить чат может только его владелец"));
       return;
     }
-    if (!window.confirm(`Удалить чат «${chat.name}»? Это действие нельзя отменить.`)) return;
+    if (!window.confirm(t("Удалить чат «{chat}»? Это действие нельзя отменить.", { chat: chat.name }))) return;
 
     const chatId = String(chat.id);
     setDeletingChatId(chatId);
-    setChatStatus(`Удаляем чат «${chat.name}»...`);
+    setChatStatus(t("Удаляем чат «{chat}»...", { chat: chat.name }));
     try {
-      const response = await apiFetch(`${API_URL}/chat/${chat.id}`, {
+      const response = await apiFetch(`${API_URL}/chats/${chat.id}`, {
         method: "DELETE",
         headers: { "X-CSRF-TOKEN": getCookie("csrf_access_token") },
         credentials: "include",
       });
       if (!response.ok) {
         throw new Error(response.status === 403
-          ? "Удалить чат может только его владелец"
-          : "Не удалось удалить чат");
+          ? t("Удалить чат может только его владелец")
+          : t("Не удалось удалить чат"));
       }
 
       const remainingChats = chats.filter((item) => String(item.id) !== chatId);
@@ -721,8 +1071,8 @@ function App() {
         setMessagesLoading(false);
         setSelectedChatId(String(remainingChats[0]?.id || ""));
       }
-      setChatStatus(`Чат «${chat.name}» удалён`);
-      addEvent("system", `Удалён чат #${chat.id}: ${chat.name}`);
+      setChatStatus(t("Чат «{chat}» удалён", { chat: chat.name }));
+      addEvent("system", t("Удалён чат #{chatId}: {chat}", { chatId: chat.id, chat: chat.name }));
     } catch (error) {
       setChatStatus(error.message);
     } finally {
@@ -734,9 +1084,9 @@ function App() {
     event.preventDefault();
     if (!selectedChatId) return;
 
-    setChatStatus("Обновляем метаданные...");
+    setChatStatus(t("Обновляем метаданные..."));
     try {
-      const response = await apiFetch(`${API_URL}/chat`, {
+      const response = await apiFetch(`${API_URL}/chats/${selectedChatId}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -749,12 +1099,12 @@ function App() {
           owner_id: chatMetaOwnerId ? Number(chatMetaOwnerId) : null,
         }),
       });
-      if (!response.ok) throw new Error("Не удалось обновить метаданные");
+      if (!response.ok) throw new Error(t("Не удалось обновить метаданные"));
       const chat = await response.json();
       setChats((current) => current.map((item) => item.id === chat.id ? chat : item));
       setChatMetaName("");
       setChatMetaOwnerId("");
-      setChatStatus("Метаданные обновлены");
+      setChatStatus(t("Метаданные обновлены"));
     } catch (error) {
       setChatStatus(error.message);
     }
@@ -763,19 +1113,19 @@ function App() {
   const login = async (event) => {
     event.preventDefault();
     clearInMemoryChatState();
-    setAuthStatus("Входим...");
+    setAuthStatus(t("Входим..."));
     try {
-      const response = await fetch(`${API_URL}/auth/login`, {
+      const response = await fetch(`${API_URL}/users/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({ name, password }),
       });
-      if (!response.ok) throw new Error("Неверное имя или пароль");
+      if (!response.ok) throw new Error(t("Неверное имя или пароль"));
       localStorage.setItem("secret-chat-user", name);
       setIsAuthenticated(true);
-      setAuthStatus("Вход выполнен");
-      addEvent("system", "Токены получены в cookie");
+      setAuthStatus(t("Вход выполнен"));
+      addEvent("system", t("Токены получены в cookie"));
       await loadProfile();
       if (await loadChats()) connect();
       await loadInvites();
@@ -785,30 +1135,94 @@ function App() {
     }
   };
 
+  const register = async (event) => {
+    event.preventDefault();
+    setAuthSubmitting(true);
+    setAuthStatus(t("Создаём аккаунт..."));
+    try {
+      const response = await fetch(`${API_URL}/users`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name.trim(), password }),
+      });
+      if (!response.ok) {
+        if (response.status === 409) throw new Error(t("Пользователь с таким именем уже существует"));
+        if (response.status === 422) throw new Error(t("Проверьте имя и пароль"));
+        throw new Error(t("Не удалось создать аккаунт ({status})", { status: response.status }));
+      }
+      setName(name.trim());
+      setPassword("");
+      setIsRegistering(false);
+      setAuthStatus(t("Аккаунт создан. Теперь войдите."));
+    } catch (error) {
+      setAuthStatus(error.message);
+    } finally {
+      setAuthSubmitting(false);
+    }
+  };
+
+  const deleteAccount = async () => {
+    if (!currentUserId || deletingAccount) return;
+    const confirmed = window.confirm(
+      t("Удалить аккаунт без возможности восстановления? Локальные RSA-ключи этого аккаунта тоже будут удалены."),
+    );
+    if (!confirmed) return;
+
+    setDeletingAccount(true);
+    setAuthStatus(t("Удаляем аккаунт..."));
+    try {
+      const response = await apiFetch(`${API_URL}/users/${currentUserId}`, {
+        method: "DELETE",
+        headers: { "X-CSRF-TOKEN": getCookie("csrf_access_token") },
+      });
+      if (!response.ok) throw new Error(t("Не удалось удалить аккаунт ({status})", { status: response.status }));
+
+      let keyCleanupFailed = false;
+      try {
+        await deleteChatKeyPairs(name);
+      } catch {
+        keyCleanupFailed = true;
+      }
+      clearInMemoryChatState();
+      localStorage.removeItem("secret-chat-user");
+      setName("");
+      setPassword("");
+      setInvites([]);
+      setIsAuthenticated(false);
+      setAuthStatus(keyCleanupFailed
+        ? t("Аккаунт удалён, но локальные ключи удалить не удалось")
+        : t("Аккаунт удалён"));
+    } catch (error) {
+      setAuthStatus(error.message);
+    } finally {
+      setDeletingAccount(false);
+    }
+  };
+
   const connect = () => {
     if (connectAttemptRef.current || isConnected) return;
     connectAttemptRef.current = true;
     const socket = new WebSocket(DEFAULT_URL);
     socketRef.current = socket;
     setStatus("connecting");
-    addEvent("system", `Подключение к ${DEFAULT_URL}`);
+    addEvent("system", t("Подключение к {url}", { url: DEFAULT_URL }));
     socket.onopen = () => {
       if (socketRef.current !== socket) return;
       setStatus("online");
-      addEvent("system", "Соединение установлено");
+      addEvent("system", t("Соединение установлено"));
     };
     socket.onmessage = ({ data }) => {
       if (socketRef.current === socket) parseServerMessage(data);
     };
     socket.onerror = () => {
-      if (socketRef.current === socket) addEvent("error", "Ошибка WebSocket");
+      if (socketRef.current === socket) addEvent("error", t("Ошибка WebSocket"));
     };
     socket.onclose = ({ code, reason }) => {
       if (socketRef.current !== socket) return;
       connectAttemptRef.current = false;
       setStatus("offline");
       socketRef.current = null;
-      addEvent("system", `Соединение закрыто · ${code}${reason ? ` · ${reason}` : ""}`);
+      addEvent("system", t("Соединение закрыто · {code}{reason}", { code, reason: reason ? ` · ${reason}` : "" }));
     };
   };
 
@@ -823,10 +1237,10 @@ function App() {
     }
     try {
       const expectedVersion = selectedChat?.current_key_version;
-      if (expectedVersion == null) throw new Error("Не удалось определить версию AES-ключа чата");
+      if (expectedVersion == null) throw new Error(t("Не удалось определить версию AES-ключа чата"));
       await refreshChatKeys(selectedChatId, expectedVersion);
       const aesKey = getChatKey(selectedChatId, expectedVersion);
-      if (!aesKey) throw new Error(`AES-ключ версии ${expectedVersion} недоступен`);
+      if (!aesKey) throw new Error(t("AES-ключ версии {version} недоступен", { version: expectedVersion }));
 
       const clientMsgId = crypto.randomUUID();
       const { body, nonce } = await encryptMessage(aesKey, payload);
@@ -873,38 +1287,55 @@ function App() {
         <section className="hero">
           <div className="brand-mark">SC</div>
           <div>
-            <p className="eyebrow">WEBSOCKET LAB · LOCAL CLIENT</p>
-            <h1>SecretChat <span>sign in</span></h1>
-            <p className="subtitle">Войдите, чтобы загрузить ваши чаты.</p>
+            <p className="eyebrow">{t("WEBSOCKET LAB · LOCAL CLIENT")}</p>
+            <h1>SecretChat <span>{isRegistering ? t("Создать аккаунт") : t("Вход")}</span></h1>
+            <p className="subtitle">
+              {isRegistering ? t("Создайте аккаунт для защищённого общения.") : t("Войдите, чтобы загрузить ваши чаты.")}
+            </p>
           </div>
+          <LanguageSwitcher language={language} onChange={changeLanguage} />
         </section>
-        <form className="panel auth-card login-form" onSubmit={login}>
+        <form className="panel auth-card login-form" onSubmit={isRegistering ? register : login}>
           <div className="panel-heading">
             <div>
               <span className="section-number">01</span>
-              <h2>Вход</h2>
+              <h2>{isRegistering ? t("Регистрация") : t("Вход")}</h2>
             </div>
-            <span className="lock">COOKIE AUTH</span>
+            <span className="lock">{t("COOKIE AUTH")}</span>
           </div>
-          <label className="field-label" htmlFor="user-name">Имя пользователя</label>
+          <label className="field-label" htmlFor="user-name">{t("Имя пользователя")}</label>
           <input
             id="user-name"
             value={name}
             onChange={(event) => setName(event.target.value)}
+            maxLength={20}
+            autoComplete="username"
             required
           />
-          <label className="field-label" htmlFor="user-password">Пароль</label>
+          <label className="field-label" htmlFor="user-password">{t("Пароль")}</label>
           <input
             id="user-password"
             type="password"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
+            autoComplete={isRegistering ? "new-password" : "current-password"}
             required
           />
-          <button className="send-button" type="submit">
-            Войти <span>↗</span>
+          <button className="send-button" type="submit" disabled={authSubmitting}>
+            {authSubmitting ? t("Подождите...") : isRegistering ? t("Создать аккаунт") : t("Вход")} <span>↗</span>
           </button>
           {authStatus && <p className="auth-status">{authStatus}</p>}
+          <button
+            className="text-button"
+            type="button"
+            onClick={() => {
+              setIsRegistering((current) => !current);
+              setAuthStatus("");
+            }}
+            disabled={authSubmitting}
+          >
+            {isRegistering ? t("Уже есть аккаунт? Войти") : t("Нет аккаунта? Зарегистрироваться")}
+          </button>
         </form>
       </main>
     );
@@ -915,17 +1346,26 @@ function App() {
       <section className="hero">
         <div className="brand-mark">SC</div>
         <div>
-          <p className="eyebrow">WEBSOCKET LAB · LOCAL CLIENT</p>
-          <h1>SecretChat <span>test room</span></h1>
-          <p className="subtitle">Небольшая лаборатория для проверки входящих и исходящих кадров.</p>
+          <p className="eyebrow">{t("WEBSOCKET LAB · LOCAL CLIENT")}</p>
+          <h1>SecretChat <span>{t("Тестовая комната")}</span></h1>
+          <p className="subtitle">{t("Небольшая лаборатория для проверки входящих и исходящих кадров.")}</p>
         </div>
         <div className="topbar-actions">
           <div className="user-pill">
-            Аккаунт: <strong>{name || "guest"}</strong>
+            {t("Аккаунт:")} <strong>{name || t("guest")}</strong>
           </div>
+          <button
+            className="text-button danger-button delete-account-button"
+            type="button"
+            onClick={deleteAccount}
+            disabled={deletingAccount || profileLoading || !currentUserId}
+          >
+            {deletingAccount ? t("Удаляем...") : t("Удалить аккаунт")}
+          </button>
           <div className={`status-pill ${status}`}>
-            <i /> {status === "online" ? "online" : status === "connecting" ? "connecting" : "offline"}
+            <i /> {t(status)}
           </div>
+          <LanguageSwitcher language={language} onChange={changeLanguage} />
         </div>
       </section>
       <section className="workspace">
@@ -933,14 +1373,14 @@ function App() {
           <div className="panel-heading sidebar-heading">
             <div>
               <span className="section-number">01</span>
-              <h2>Ваши чаты</h2>
+              <h2>{t("Ваши чаты")}</h2>
             </div>
             <span className="lock">{chats.length}</span>
           </div>
-          <div className="chat-list" aria-label="Список чатов">
+          <div className="chat-list" aria-label={t("Ваши чаты")}>
             {!chats.length && (
               <div className="chat-list-empty">
-                {chatsLoading ? "Загрузка чатов..." : "Чаты не найдены"}
+                {chatsLoading ? t("Загрузка чатов...") : t("Чаты не найдены")}
               </div>
             )}
             {chats.map((chat) => {
@@ -956,7 +1396,7 @@ function App() {
                     <span className="chat-item-icon">//</span>
                     <span className="chat-item-copy">
                       <strong>{chat.name}</strong>
-                      <small>#{chat.id} · {chat.members?.length || 0} участников</small>
+                      <small>#{chat.id} · {t("{count} members", { count: chat.members?.length || 0 })}</small>
                     </span>
                     <span className="chat-item-count">{messageCount}</span>
                   </button>
@@ -966,8 +1406,8 @@ function App() {
                       type="button"
                       onClick={() => deleteChat(chat)}
                       disabled={Boolean(deletingChatId)}
-                      aria-label={`Удалить чат ${chat.name}`}
-                      title="Удалить чат"
+                      aria-label={t("Удалить чат {chat}", { chat: chat.name })}
+                      title={t("Удалить чат {chat}", { chat: chat.name })}
                     >
                       ×
                     </button>
@@ -977,13 +1417,13 @@ function App() {
             })}
           </div>
           <form className="create-chat-form" onSubmit={createChat}>
-            <label className="field-label" htmlFor="new-chat-name">Создать чат</label>
+            <label className="field-label" htmlFor="new-chat-name">{t("Создать чат")}</label>
             <div className="create-chat-row">
               <input
                 id="new-chat-name"
                 value={newChatName}
                 onChange={(event) => setNewChatName(event.target.value)}
-                placeholder="Название чата"
+                placeholder={t("Название чата")}
                 maxLength="100"
               />
               <button
@@ -991,32 +1431,32 @@ function App() {
                 type="submit"
                 disabled={!newChatName.trim() || typeof crypto?.subtle === "undefined"}
               >
-                Создать
+                {t("Создать")}
               </button>
             </div>
             <p className="crypto-status">{cryptoStatus}</p>
           </form>
           <div className="inbox-heading">
-            <h3>Приглашения</h3>
+            <h3>{t("Приглашения")}</h3>
             <button
               className="text-button"
               type="button"
               onClick={loadInvites}
               disabled={invitesLoading}
-              aria-label="Обновить приглашения"
-              title="Обновить приглашения"
+              aria-label={t("Обновить приглашения")}
+              title={t("Обновить приглашения")}
             >
-              {invitesLoading ? "..." : "Обновить"}
+              {invitesLoading ? "..." : t("Обновить")}
             </button>
           </div>
           <div className="invite-list" aria-live="polite">
-            {invitesLoading && !invites.length && <p className="invite-empty">Загружаем приглашения...</p>}
-            {!invitesLoading && !invites.length && <p className="invite-empty">Новых приглашений нет</p>}
+            {invitesLoading && !invites.length && <p className="invite-empty">{t("Загружаем приглашения...")}</p>}
+            {!invitesLoading && !invites.length && <p className="invite-empty">{t("Новых приглашений нет")}</p>}
             {invites.map((invite) => (
               <article className="invite-item" key={invite.id}>
                 <div className="invite-copy">
                   <strong>{invite.chat_name}</strong>
-                  <small>Чат #{invite.chat_id} · приглашение #{invite.id}</small>
+                  <small>{t("Чат #{chatId} · приглашение #{inviteId}", { chatId: invite.chat_id, inviteId: invite.id })}</small>
                 </div>
                 <div className="invite-actions">
                   <button
@@ -1024,9 +1464,9 @@ function App() {
                     type="button"
                     onClick={() => acceptInvite(invite)}
                     disabled={Boolean(inviteActionId) || profileLoading || !currentUserId}
-                    title={profileLoading ? "Загружаем профиль" : !currentUserId ? "Не удалось получить ID аккаунта" : "Принять приглашение"}
+                    title={profileLoading ? t("Загружаем профиль") : !currentUserId ? t("Не удалось получить ID аккаунта") : t("Принять приглашение")}
                   >
-                    Принять
+                    {t("Принять")}
                   </button>
                   <button
                     className="text-button danger-button"
@@ -1034,26 +1474,31 @@ function App() {
                     onClick={() => declineInvite(invite)}
                     disabled={Boolean(inviteActionId)}
                   >
-                    Отклонить
+                    {t("Отклонить")}
                   </button>
                 </div>
               </article>
             ))}
           </div>
           {!profileLoading && !currentUserId && invites.length > 0 && (
-            <p className="invite-note">Не удалось загрузить ID аккаунта. Обновите страницу или войдите снова.</p>
+            <p className="invite-note">{t("Не удалось загрузить ID аккаунта. Обновите страницу или войдите снова.")}</p>
           )}
           {inviteStatus && <p className="invite-status" role="status">{inviteStatus}</p>}
         </aside>
 
         <div className="chat-column">
-          <section className="panel log-panel" aria-label="Сообщения чата">
+          <section className="panel log-panel" aria-label={t("Сообщения чата")}>
             <div className="chat-toolbar">
               <div className="chat-title-group">
                 <span className="active-chat-mark" aria-hidden="true">//</span>
                 <div>
-                  <h2>{selectedChat?.name || "Выберите чат"}</h2>
-                  <p>{selectedChat ? `Чат #${selectedChat.id} · ${selectedChat.members?.length || 0} участников` : "История сообщений"}</p>
+                  <h2>{selectedChat?.name || t("Выберите чат")}</h2>
+                  <p>{selectedChat
+                    ? t("Чат #{chatId} · {count} участников", {
+                      chatId: selectedChat.id,
+                      count: selectedChat.members?.length || 0,
+                    })
+                    : t("История сообщений")}</p>
                 </div>
               </div>
               <button
@@ -1064,21 +1509,21 @@ function App() {
                 ))}
                 disabled={!visibleEvents.length || messagesLoading}
               >
-                Очистить
+                {t("Очистить")}
               </button>
             </div>
             <div className="event-list">
               {messagesLoading && (
                 <div className="empty-state">
-                  <div className="signal-art" aria-hidden="true"><span>SYNCING</span></div>
-                  <strong>Загрузка сообщений</strong>
+                  <div className="signal-art" aria-hidden="true"><span>{t("SYNCING")}</span></div>
+                  <strong>{t("Загрузка сообщений")}</strong>
                 </div>
               )}
               {!messagesLoading && !visibleEvents.length && (
                 <div className="empty-state">
-                  <div className="signal-art" aria-hidden="true"><span>NO SIGNAL</span></div>
-                  <strong>Пока тихо</strong>
-                  <span>Отправьте первое сообщение.</span>
+                  <div className="signal-art" aria-hidden="true"><span>{t("NO SIGNAL")}</span></div>
+                  <strong>{t("Пока тихо")}</strong>
+                  <span>{t("Отправьте первое сообщение.")}</span>
                 </div>
               )}
               {!messagesLoading && visibleEvents.map((event) => {
@@ -1089,14 +1534,14 @@ function App() {
                     key={event.id}
                   >
                     <div className="event-meta">
-                      <span>{event.type === "in" ? "ВХОДЯЩЕЕ" : event.type === "out" ? "ВЫ" : event.type.toUpperCase()}</span>
+                      <span>{event.type === "in" ? t("ВХОДЯЩЕЕ") : event.type === "out" ? t("ВЫ") : event.type.toUpperCase()}</span>
                       <time>{event.time}</time>
                     </div>
                     {messageBody !== null ? (
                       <>
                         <p className="message-body">{messageBody}</p>
                         <details className="event-payload">
-                          <summary>Данные пакета</summary>
+                          <summary>{t("Данные пакета")}</summary>
                           <pre>{event.value}</pre>
                         </details>
                       </>
@@ -1118,8 +1563,8 @@ function App() {
           >
             <textarea
               id="message"
-              aria-label="Сообщение"
-              placeholder={selectedChatId ? "Напишите сообщение..." : "Сначала выберите чат"}
+              aria-label={t("Сообщение")}
+              placeholder={selectedChatId ? t("Напишите сообщение...") : t("Сначала выберите чат")}
               value={payload}
               onChange={(event) => setPayload(event.target.value)}
               onKeyDown={(event) => {
@@ -1132,10 +1577,10 @@ function App() {
             />
             <div className="composer-actions">
               <span className={`composer-connection ${isConnected ? "online" : ""}`}>
-                {isConnected ? "Соединение установлено" : "Нет соединения"}
+                {isConnected ? t("Соединение установлено") : t("Нет соединения")}
               </span>
               <button className="send-button" type="submit" disabled={!isConnected || !selectedChatId || !payload.trim()}>
-                Отправить <span>↑</span>
+                {t("Отправить")} <span>↑</span>
               </button>
             </div>
           </form>
@@ -1145,20 +1590,20 @@ function App() {
           <div className="panel-heading sidebar-heading">
             <div>
               <span className="section-number">02</span>
-              <h2>Участники</h2>
+              <h2>{t("Участники")}</h2>
             </div>
             <span className="lock">{selectedChat?.members?.length || 0}</span>
           </div>
-          <div className="member-list" aria-label="Участники выбранного чата">
+          <div className="member-list" aria-label={t("Участники выбранного чата")}>
             {!selectedChat?.members?.length && (
-              <p className="invite-empty">Выберите чат, чтобы увидеть участников</p>
+              <p className="invite-empty">{t("Выберите чат, чтобы увидеть участников")}</p>
             )}
             {selectedChat?.members?.map((member) => (
               <div className="member-item" key={member.id}>
                 <span className="member-avatar" aria-hidden="true">{member.name.slice(0, 1).toUpperCase()}</span>
                 <div className="invite-copy">
                   <strong>{member.name}</strong>
-                  <small>{member.id === selectedChat.owner?.id ? "ВЛАДЕЛЕЦ" : `ID ${member.id}`}</small>
+                  <small>{member.id === selectedChat.owner?.id ? t("ВЛАДЕЛЕЦ") : `ID ${member.id}`}</small>
                 </div>
                 {selectedChat.owner?.id === currentUserId && member.id !== currentUserId && (
                   <button
@@ -1166,8 +1611,8 @@ function App() {
                     type="button"
                     onClick={() => deleteMember(member)}
                     disabled={Boolean(deletingMemberId)}
-                    aria-label={`Удалить ${member.name} из чата`}
-                    title="Удалить участника"
+                    aria-label={t("Удалить {member} из чата", { member: member.name })}
+                    title={t("Удалить участника")}
                   >
                     {deletingMemberId === String(member.id) ? "..." : "×"}
                   </button>
@@ -1179,16 +1624,16 @@ function App() {
           {selectedChat?.owner?.id === currentUserId && (
             <div className="owner-tools">
               <details className="management-disclosure">
-                <summary>Добавить участника</summary>
+                <summary>{t("Добавить участника")}</summary>
                 <form className="management-form" onSubmit={sendInvite}>
-                  <label className="field-label" htmlFor="new-member-id">ID пользователя</label>
+                  <label className="field-label" htmlFor="new-member-id">{t("ID пользователя")}</label>
                   <input
                     id="new-member-id"
                     type="number"
                     min="1"
                     value={newMemberId}
                     onChange={(event) => setNewMemberId(event.target.value)}
-                    placeholder="Например, 12"
+                    placeholder={t("Например, 12")}
                     required
                   />
                   <button
@@ -1196,14 +1641,14 @@ function App() {
                     type="submit"
                     disabled={!newMemberId || inviteSubmitting}
                   >
-                    {inviteSubmitting ? "Отправка..." : "Отправить приглашение"}
+                    {inviteSubmitting ? t("Отправка...") : t("Отправить приглашение")}
                   </button>
                 </form>
               </details>
               <details className="management-disclosure">
-                <summary>Настройки чата</summary>
+                <summary>{t("Настройки чата")}</summary>
                 <form className="management-form" onSubmit={patchChatMetadata}>
-                  <label className="field-label" htmlFor="chat-meta-name">Название</label>
+                  <label className="field-label" htmlFor="chat-meta-name">{t("Название")}</label>
                   <input
                     id="chat-meta-name"
                     value={chatMetaName}
@@ -1211,14 +1656,14 @@ function App() {
                     placeholder={selectedChat.name}
                     disabled={!selectedChatId}
                   />
-                  <label className="field-label" htmlFor="chat-meta-owner">Новый ID владельца</label>
+                  <label className="field-label" htmlFor="chat-meta-owner">{t("Новый ID владельца")}</label>
                   <input
                     id="chat-meta-owner"
                     type="number"
                     min="1"
                     value={chatMetaOwnerId}
                     onChange={(event) => setChatMetaOwnerId(event.target.value)}
-                    placeholder={String(selectedChat.owner?.id || "ID пользователя")}
+                    placeholder={String(selectedChat.owner?.id || t("ID пользователя"))}
                     disabled={!selectedChatId}
                   />
                   <button
@@ -1226,7 +1671,7 @@ function App() {
                     type="submit"
                     disabled={!selectedChatId || (!chatMetaName.trim() && !chatMetaOwnerId)}
                   >
-                    Сохранить
+                    {t("Сохранить")}
                   </button>
                 </form>
               </details>
