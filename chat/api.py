@@ -28,10 +28,9 @@ from .schemas import (
 )
 from .services import (
     ChatService,
-    ConnectionManager,
     get_chat_service,
-    get_connection_manager,
 )
+from .ws_manager import ConnectionManager, get_connection_manager
 
 router = APIRouter()
 
@@ -70,11 +69,13 @@ async def websocket_endpoint(
                 await manager.broadcast(inpt, user, chat_service)
             except JSONDecodeError:
                 await manager.send_personal_message(
+                    websocket,
                     "Message was not delivered, this type of data is unsupported",
-                    user=user,
                 )
     except WebSocketDisconnect:
-        manager.disconnect(user_id=user.id)
+        pass
+    finally:
+        await manager.disconnect(user.id, websocket)
 
 
 @router.post("/chats", response_model=ChatSchema)

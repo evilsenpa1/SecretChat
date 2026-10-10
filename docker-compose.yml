@@ -5,7 +5,7 @@ services:
       context: .
       dockerfile: Dockerfile
     image: secret-chat-backend:dev
-    command: uvicorn main:app --host 0.0.0.0 --port 8080 --reload
+    command: uvicorn main:app --host 0.0.0.0 --port 8080 --workers 4 #or --reload instead of --workers
     ports:
       - "8080:8080"
     env_file:
@@ -50,21 +50,20 @@ services:
     volumes:
       - db-data:/var/lib/postgresql
 
-  # redis:
-  #   build: ./redis
+  redis:
+    image: redis:8.10.2-trixie
 
-  #   volumes:
-  #     - redis-data-dev:/data
-  #     - ./redis/redis.conf.template:/usr/local/etc/redis/redis.conf.template
+    volumes:
+      - redis-data-dev:/data
 
-  #   env_file:
-  #     - ./redis/.env
+    env_file:
+      - .env
 
-  #   healthcheck:
-  #     test: ["CMD-SHELL", "redis-cli --user $$REDIS_USER -a $$REDIS_USER_PASSWORD ping | grep -q PONG"]
-  #     interval: 10s
-  #     timeout: 5s
-  #     retries: 5
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 
 volumes:

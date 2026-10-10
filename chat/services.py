@@ -1,7 +1,6 @@
 from collections.abc import Iterable
-from functools import lru_cache
 
-from fastapi import Depends, WebSocket
+from fastapi import Depends
 
 from users.models import UserModel
 from users.schemas import UserResponseSchema
@@ -21,8 +20,6 @@ from .schemas import (
     InviteMineSchema,
     MessageHistoryDataSchema,
     MessageRequestSchema,
-    MessageResponseSchema,
-    MessageType,
 )
 
 
@@ -263,58 +260,11 @@ class ChatService:
         return result
 
 
-class ConnectionManager:
-    def __init__(self) -> None:
-        self.active_connections: dict[int, WebSocket] = {}
-
-    async def connect(
-        self,
-        websocket: WebSocket,
-        user: UserModel,
-    ):
-
-        await websocket.accept()
-        self.active_connections[user.id] = websocket
-        await websocket.send_text("Connected!")
-
-    def disconnect(self, user_id: int):
-        self.active_connections.pop(user_id)
-
-    async def send_personal_message(self, message: str, user: UserModel):
-        user_conn = self.active_connections[user.id]
-        await user_conn.send_text(message)
-
-    async def broadcast(
-        self, message: MessageRequestSchema, user: UserModel, chat_service: ChatService
-    ):
-        client_msg_id = message.data.client_msg_id
-        chat = await chat_service.get(message.data.chat_id)
-        result = await chat_service.create_message(message, user, chat)
-        result = {
-            "type": MessageType.message,
-            "data": {
-                **vars(result),
-                "key_version": result.chat_key.version,
-                "client_msg_id": client_msg_id,
-            },
-        }
-        result = MessageResponseSchema(**result)
-
-        for connection in {self.active_connections.get(i) for i in {i.id for i in chat.members}}:
-            if connection is not None:
-                await connection.send_json(result.model_dump(mode="json"))
-
-
 def get_chat_service(
     repo: ChatRepository = Depends(get_chat_repository),
     user_service: UserService = Depends(get_user_service),
 ) -> ChatService:
     return ChatService(repo=repo, user_service=user_service)
-
-
-@lru_cache
-def get_connection_manager() -> ConnectionManager:
-    return ConnectionManager()
 
 
 def _owner_check(user: UserModel, owner_id: int) -> None:

@@ -1,10 +1,12 @@
 import logging.config
+from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from chat.api import router as chat
+from chat.ws_manager import get_connection_manager
 from core.exception_handlers import domain_error_handler
 from core.logging_config import LOGGING
 from core.shared.exceptions import AppError
@@ -12,7 +14,16 @@ from users.api import router as user
 
 logging.config.dictConfig(LOGGING)
 
-app = FastAPI()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    manager = get_connection_manager()
+    await manager.start()
+    yield
+    await manager.stop()
+
+
+app = FastAPI(lifespan=lifespan)
 
 
 app.add_middleware(
