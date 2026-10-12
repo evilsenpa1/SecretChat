@@ -216,7 +216,6 @@ class ChatRepository:
 
     async def delete_members(
         self,
-        delete_member_models: Iterable[UserModel],
         chat: ChatModel,
         data: DeleteMembersSchema,
         data_member_ids: Iterable[int],

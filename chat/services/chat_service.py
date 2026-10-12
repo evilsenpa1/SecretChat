@@ -178,22 +178,22 @@ class ChatService:
             current_key_version=data.new_version,
         )
 
-    async def delete_members(self, chat_id: int, data: DeleteMembersSchema):
+    async def _delete_members(self, chat: ChatModel, data: DeleteMembersSchema):
         """Method without permission check"""
 
-        chat = await self.repo.get(chat_id)
+        data_member_ids = set(data.member_ids)
+        if chat.owner_id in data_member_ids:
+            raise ChatPermissionError
 
         key_version = await self.repo.get_current_key_version([chat.id])
         members_exist = {i.user_id for i in chat.members}
-        delete_member_models = await self.user_service.get_many(list(set(data.member_ids)))
-        data_member_ids = set(data.member_ids)
+        await self.user_service.get_many(list(data_member_ids))  # exist check
         if key_version[chat.id] + 1 != data.new_version or not data_member_ids.issubset(
             members_exist
         ):
             raise ChatIntegrityError
 
         chat = await self.repo.delete_members(
-            delete_member_models=delete_member_models,
             chat=chat,
             data=data,
             data_member_ids=data_member_ids,
@@ -212,6 +212,23 @@ class ChatService:
             members=members,
             current_key_version=data.new_version,
         )
+
+    async def delete_members_as_owner(self, chat_id: int, user_id: int, data: DeleteMembersSchema):
+        chat = await self.repo.get(chat_id)
+        user = await self.user_service.get(user_id)
+        self._owner_check(user, chat.owner_id)
+
+        return await self._delete_members(chat=chat, data=data)
+
+    async def delete_members_me(self, chat_id: int, user_id: int, data: DeleteMembersSchema):
+        if len(data.member_ids) != 1 or data.member_ids[0] != user_id:
+            raise ChatPermissionError
+
+        chat = await self.repo.get(chat_id)
+        user = await self.user_service.get(user_id)
+        self._member_check(user, {i.user_id for i in chat.members})
+
+        return await self._delete_members(chat=chat, data=data)
 
     def _owner_check(self, user: UserModel, owner_id: int) -> None:
         if user.id != owner_id:

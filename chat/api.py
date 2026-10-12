@@ -180,7 +180,17 @@ async def members_delete(
     user_id: int = Depends(get_current_user_id),
     chat_service: ChatService = Depends(get_chat_service),
 ):
-    return await chat_service.delete_members(chat_id=chat_id, user_id=user_id, data=data)
+    return await chat_service.delete_members_as_owner(chat_id=chat_id, user_id=user_id, data=data)
+
+
+@router.delete("/chats/{chat_id}/members/me", response_model=ChatSchema)
+async def members_delete_me(
+    data: DeleteMembersSchema,
+    chat_id: int,
+    user_id: int = Depends(get_current_user_id),
+    chat_service: ChatService = Depends(get_chat_service),
+):
+    return await chat_service.delete_members_me(chat_id=chat_id, user_id=user_id, data=data)
 
 
 @router.post("/chats/{chat_id}/invites", status_code=201)

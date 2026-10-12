@@ -58,6 +58,11 @@ const translations = {
     "Не удалось удалить участника": "Could not remove member",
     "{member} удалён из чата; ключ обновлён": "{member} was removed from the chat; the key was updated",
     "{member} удалён из чата #{chatId}": "{member} was removed from chat #{chatId}",
+    "Выйти из чата «{chat}»?": "Leave chat “{chat}” now?",
+    "Покидаем чат «{chat}»...": "Leaving chat “{chat}”...",
+    "Выйти из чата": "Leave chat",
+    "Не удалось выйти из чата": "Could not leave the chat",
+    "Вы вышли из чата «{chat}»": "You left chat “{chat}”",
     "Профиль ещё не загружен. Обновите страницу или войдите снова.": "Your profile has not loaded yet. Refresh the page or sign in again.",
     "Подготавливаем ключи чата...": "Preparing chat keys...",
     "Не удалось загрузить данные чата": "Could not load chat details",
@@ -210,6 +215,11 @@ const translations = {
     "Не удалось удалить участника": "Не вдалося видалити учасника",
     "{member} удалён из чата; ключ обновлён": "{member} видалено з чату; ключ оновлено",
     "{member} удалён из чата #{chatId}": "{member} видалено з чату #{chatId}",
+    "Выйти из чата «{chat}»?": "Вийти з чату «{chat}»?",
+    "Покидаем чат «{chat}»...": "Виходимо з чату «{chat}»...",
+    "Выйти из чата": "Вийти з чату",
+    "Не удалось выйти из чата": "Не вдалося вийти з чату",
+    "Вы вышли из чата «{chat}»": "Ви вийшли з чату «{chat}»",
     "Профиль ещё не загружен. Обновите страницу или войдите снова.": "Профіль ще не завантажено. Оновіть сторінку або увійдіть знову.",
     "Подготавливаем ключи чата...": "Готуємо ключі чату...",
     "Не удалось загрузить данные чата": "Не вдалося завантажити дані чату",
@@ -846,6 +856,49 @@ function App() {
     }
   };
 
+  const rotateKeyAndRemoveMembers = async (chat, memberIds, endpoint) => {
+    const memberIdSet = new Set(memberIds);
+    const remainingMembers = chat.members.filter((member) => !memberIdSet.has(member.id));
+    const ownerMember = remainingMembers.find((member) => member.id === chat.owner.id);
+    if (!ownerMember) throw new Error(t("В чате должен остаться его владелец"));
+
+    const ownerPublicKey = await importPublicKey(ownerMember.public_key);
+    const { aesKey, encryptedKey } = await createChatKey(ownerPublicKey);
+    const wrappedKeys = await Promise.all(remainingMembers.map(async (member) => ({
+      user_id: member.id,
+      encrypted_key: member.id === chat.owner.id
+        ? encryptedKey
+        : await wrapChatKey(aesKey, await importPublicKey(member.public_key)),
+    })));
+    const response = await apiFetch(`${API_URL}/chats/${chat.id}/members${endpoint}`, {
+      method: "DELETE",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRF-TOKEN": getCookie("csrf_access_token"),
+      },
+      body: JSON.stringify({
+        member_ids: memberIds,
+        new_version: chat.current_key_version + 1,
+        wrapped_keys: wrappedKeys,
+      }),
+    });
+    if (!response.ok) {
+      throw new Error(endpoint === "/me"
+        ? t("Не удалось выйти из чата")
+        : response.status === 403
+          ? t("Удалять участников может только владелец чата")
+          : t("Не удалось удалить участника"));
+    }
+
+    const updatedChat = await response.json();
+    const normalizedChatId = String(updatedChat.id);
+    const updatedKeys = new Map(chatKeysRef.current.get(normalizedChatId) || []);
+    updatedKeys.set(updatedChat.current_key_version, aesKey);
+    chatKeysRef.current.set(normalizedChatId, updatedKeys);
+    chatKeyVersionsRef.current.set(normalizedChatId, updatedChat.current_key_version);
+    return updatedChat;
+  };
+
   const deleteMember = async (member) => {
     if (!selectedChat || selectedChat.owner?.id !== currentUserId) {
       setChatStatus(t("Удалять участников может только владелец чата"));
@@ -857,51 +910,46 @@ function App() {
     setDeletingMemberId(String(member.id));
     setChatStatus(t("Обновляем ключ чата «{chat}»...", { chat: selectedChat.name }));
     try {
-      const remainingMembers = selectedChat.members.filter((item) => item.id !== member.id);
-      const ownerMember = remainingMembers.find((item) => item.id === currentUserId);
-      if (!ownerMember) throw new Error(t("В чате должен остаться его владелец"));
-
-      const ownerPublicKey = await importPublicKey(ownerMember.public_key);
-      const { aesKey, encryptedKey } = await createChatKey(ownerPublicKey);
-      const wrappedKeys = await Promise.all(remainingMembers.map(async (item) => ({
-        user_id: item.id,
-        encrypted_key: item.id === currentUserId
-          ? encryptedKey
-          : await wrapChatKey(aesKey, await importPublicKey(item.public_key)),
-      })));
-      const response = await apiFetch(
-        `${API_URL}/chats/${selectedChat.id}/members?member_id=${member.id}`,
-        {
-          method: "DELETE",
-          headers: {
-            "Content-Type": "application/json",
-            "X-CSRF-TOKEN": getCookie("csrf_access_token"),
-          },
-          credentials: "include",
-          body: JSON.stringify({
-            member_ids: [member.id],
-            new_version: selectedChat.current_key_version + 1,
-            wrapped_keys: wrappedKeys,
-          }),
-        },
-      );
-      if (!response.ok) {
-        throw new Error(response.status === 403
-          ? t("Удалять участников может только владелец чата")
-          : t("Не удалось удалить участника"));
-      }
-
-      const updatedChat = await response.json();
-      const normalizedChatId = String(updatedChat.id);
-      const updatedKeys = new Map(chatKeysRef.current.get(normalizedChatId) || []);
-      updatedKeys.set(updatedChat.current_key_version, aesKey);
-      chatKeysRef.current.set(normalizedChatId, updatedKeys);
-      chatKeyVersionsRef.current.set(normalizedChatId, updatedChat.current_key_version);
+      const updatedChat = await rotateKeyAndRemoveMembers(selectedChat, [member.id], "");
       setChats((current) => current.map((item) => item.id === updatedChat.id ? updatedChat : item));
       setChatStatus(t("{member} удалён из чата; ключ обновлён", { member: member.name }));
       addEvent("system", t("{member} удалён из чата #{chatId}", { member: member.name, chatId: updatedChat.id }), {
-        chatId: normalizedChatId,
+        chatId: String(updatedChat.id),
       });
+    } catch (error) {
+      setChatStatus(error.message);
+    } finally {
+      setDeletingMemberId("");
+    }
+  };
+
+  const leaveChat = async () => {
+    if (!selectedChat || selectedChat.owner?.id === currentUserId || currentUserId == null) return;
+    if (!selectedChat.members.some((member) => member.id === currentUserId)) return;
+    if (!window.confirm(t("Выйти из чата «{chat}»?", { chat: selectedChat.name }))) return;
+
+    const chat = selectedChat;
+    const chatId = String(chat.id);
+    setDeletingMemberId(String(currentUserId));
+    setChatStatus(t("Покидаем чат «{chat}»...", { chat: chat.name }));
+    try {
+      await rotateKeyAndRemoveMembers(chat, [currentUserId], "/me");
+      const remainingChats = chats.filter((item) => String(item.id) !== chatId);
+      setChats(remainingChats);
+      setEvents((current) => current.filter((event) => event.chatId !== chatId));
+      loadedChatsRef.current.delete(chatId);
+      chatRsaKeysRef.current.delete(chatId);
+      chatKeysRef.current.delete(chatId);
+      chatKeyVersionsRef.current.delete(chatId);
+      messagesRequestRef.current += 1;
+      setMessagesLoading(false);
+      setSelectedChatId(String(remainingChats[0]?.id || ""));
+      try {
+        await deleteChatKeyPair(chat.id, name);
+      } catch {
+        // The membership change succeeded; local key cleanup is best effort.
+      }
+      setChatStatus(t("Вы вышли из чата «{chat}»", { chat: chat.name }));
     } catch (error) {
       setChatStatus(error.message);
     } finally {
@@ -1636,6 +1684,16 @@ function App() {
                     title={t("Удалить участника")}
                   >
                     {deletingMemberId === String(member.id) ? "..." : "×"}
+                  </button>
+                )}
+                {member.id === currentUserId && selectedChat.owner?.id !== currentUserId && (
+                  <button
+                    className="text-button danger-button member-leave"
+                    type="button"
+                    onClick={leaveChat}
+                    disabled={Boolean(deletingMemberId)}
+                  >
+                    {deletingMemberId === String(currentUserId) ? "..." : t("Выйти из чата")}
                   </button>
                 )}
               </div>
