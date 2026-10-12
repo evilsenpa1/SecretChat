@@ -172,7 +172,7 @@ class ChatRepository:
             .where(ChatKeyModel.chat_id == chat.id, ChatKeyRecipient.user_id == user.id)
         )
         if version is not None:
-            keys.where(ChatKeyModel.version == version)
+            keys = keys.where(ChatKeyModel.version == version)
 
         result = await self.session.execute(keys)
         return list(result.mappings().all())
@@ -216,7 +216,6 @@ class ChatRepository:
 
     async def delete_members(
         self,
-        delete_member_models: Iterable[UserModel],
         chat: ChatModel,
         data: DeleteMembersSchema,
         data_member_ids: Iterable[int],

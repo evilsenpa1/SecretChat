@@ -26,12 +26,12 @@ from .schemas import (
     MessageHistoryDataSchema,
     MessageRequestSchema,
 )
-from .services import (
+from .services.chat_service import (
     ChatService,
-    ConnectionManager,
     get_chat_service,
-    get_connection_manager,
 )
+from .services.invitation_service import InvitationService, get_invitation_service
+from .ws_manager import ConnectionManager, get_connection_manager
 
 router = APIRouter()
 
@@ -70,11 +70,13 @@ async def websocket_endpoint(
                 await manager.broadcast(inpt, user, chat_service)
             except JSONDecodeError:
                 await manager.send_personal_message(
+                    websocket,
                     "Message was not delivered, this type of data is unsupported",
-                    user=user,
                 )
     except WebSocketDisconnect:
-        manager.disconnect(user_id=user.id)
+        pass
+    finally:
+        await manager.disconnect(user.id, websocket)
 
 
 @router.post("/chats", response_model=ChatSchema)
@@ -156,9 +158,9 @@ async def version_key(
 @router.get("/chats/invites/me", response_model=list[InviteMineSchema])
 async def get_invites(
     user_id: int = Depends(get_current_user_id),
-    chat_service: ChatService = Depends(get_chat_service),
+    invitation_service: InvitationService = Depends(get_invitation_service),
 ):
-    return await chat_service.get_invites(user_id=user_id)
+    return await invitation_service.get_invites(user_id=user_id)
 
 
 @router.get("/chats/{chat_id}", response_model=ChatSchema)
@@ -178,7 +180,17 @@ async def members_delete(
     user_id: int = Depends(get_current_user_id),
     chat_service: ChatService = Depends(get_chat_service),
 ):
-    return await chat_service.delete_members(chat_id=chat_id, user_id=user_id, data=data)
+    return await chat_service.delete_members_as_owner(chat_id=chat_id, user_id=user_id, data=data)
+
+
+@router.delete("/chats/{chat_id}/members/me", response_model=ChatSchema)
+async def members_delete_me(
+    data: DeleteMembersSchema,
+    chat_id: int,
+    user_id: int = Depends(get_current_user_id),
+    chat_service: ChatService = Depends(get_chat_service),
+):
+    return await chat_service.delete_members_me(chat_id=chat_id, user_id=user_id, data=data)
 
 
 @router.post("/chats/{chat_id}/invites", status_code=201)
@@ -186,9 +198,9 @@ async def invite_user(
     chat_id: int,
     data: InviteCreateSchema,
     owner_id: int = Depends(get_current_user_id),
-    chat_service: ChatService = Depends(get_chat_service),
+    invitation_service: InvitationService = Depends(get_invitation_service),
 ):
-    await chat_service.invite_user(chat_id=chat_id, data=data, owner_id=owner_id)
+    await invitation_service.invite_user(chat_id=chat_id, data=data, owner_id=owner_id)
 
 
 @router.post("/chats/invites/{invite_id}/accept", response_model=ChatSchema)
@@ -196,15 +208,15 @@ async def accept_invite(
     data: AddMembersSchema,
     invite_id: int,
     user_id: int = Depends(get_current_user_id),
-    chat_service: ChatService = Depends(get_chat_service),
+    invitation_service: InvitationService = Depends(get_invitation_service),
 ):
-    return await chat_service.accept_invite(invite_id=invite_id, user_id=user_id, data=data)
+    return await invitation_service.accept_invite(invite_id=invite_id, user_id=user_id, data=data)
 
 
 @router.delete("/chats/invites/{invite_id}/decline", status_code=204)
 async def decline_invite(
     invite_id: int,
     user_id: int = Depends(get_current_user_id),
-    chat_service: ChatService = Depends(get_chat_service),
+    invitation_service: InvitationService = Depends(get_invitation_service),
 ):
-    await chat_service.decline_invite(user_id=user_id, invite_id=invite_id)
+    await invitation_service.decline_invite(user_id=user_id, invite_id=invite_id)
