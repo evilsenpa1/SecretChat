@@ -6,10 +6,13 @@ import redis.asyncio as redis
 from fastapi import WebSocket
 
 from chat.schemas import MessageRequestSchema, MessageResponseSchema, MessageType
-from chat.services import ChatService
+from core.settings import get_settings
 from users.models import UserModel
 
-r = redis.Redis(decode_responses=True, host="redis")
+from .services.chat_service import ChatService
+
+settings = get_settings()
+r = redis.Redis(decode_responses=True, host=settings.REDIS_HOST)
 
 KEEPALIVE_CHANNEL = "ws:keepalive"
 

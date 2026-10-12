@@ -1,3 +1,5 @@
+from functools import lru_cache
+
 from pydantic import (
     PostgresDsn,
     computed_field,
@@ -21,6 +23,8 @@ class Settings(BaseSettings):
     JWT_ACCESS_TTL: int = 300
     JWT_REFRESH_TTL: int = 3600 * 24 * 5
 
+    REDIS_HOST: str = "redis"
+
     @computed_field
     @property
     def pg_dsn(self) -> PostgresDsn:
@@ -30,5 +34,6 @@ class Settings(BaseSettings):
         )
 
 
+@lru_cache
 def get_settings() -> Settings:
     return Settings()

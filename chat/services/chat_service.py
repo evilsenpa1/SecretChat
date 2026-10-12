@@ -6,18 +6,16 @@ from users.models import UserModel
 from users.schemas import UserResponseSchema
 from users.services import UserService, get_user_service
 
-from .exceptions import ChatIntegrityError, ChatPermissionError, ValidationError
-from .models import ChatModel, MessageModel
-from .repository import ChatRepository, get_chat_repository
-from .schemas import (
+from ..exceptions import ChatIntegrityError, ChatPermissionError, ValidationError
+from ..models import ChatModel, MessageModel
+from ..repository import ChatRepository, get_chat_repository
+from ..schemas import (
     AddMembersSchema,
     ChatCreateSchema,
     ChatMemberSchema,
     ChatPatchSchema,
     ChatSchema,
     DeleteMembersSchema,
-    InviteCreateSchema,
-    InviteMineSchema,
     MessageHistoryDataSchema,
     MessageRequestSchema,
 )
@@ -84,7 +82,7 @@ class ChatService:
         user = await self.user_service.get(user_id)
         chat = await self.repo.get(data.id)
 
-        _owner_check(user, chat.owner.id)
+        self._owner_check(user, chat.owner.id)
 
         chat = await self.repo.patch(data=data, chat=chat)
         owner = UserResponseSchema(id=chat.owner.id, name=chat.owner.name)
@@ -105,21 +103,21 @@ class ChatService:
         user = await self.user_service.get(user_id)
         chat = await self.repo.get(chat_id)
 
-        _owner_check(user, chat.owner.id)
+        self._owner_check(user, chat.owner.id)
 
         return await self.repo.delete(chat)
 
     async def create_message(
         self, message: MessageRequestSchema, user: UserModel, chat: ChatSchema
     ) -> MessageModel:
-        _member_check(user, {i.id for i in chat.members})
+        self._member_check(user, {i.id for i in chat.members})
         return await self.repo.create_message(message, user)
 
     async def get_messages(self, chat_id: int, user_id: int) -> list[MessageHistoryDataSchema]:
         chat = await self.repo.get(chat_id)
         user = await self.user_service.get(user_id)
 
-        _member_check(user, {i.user_id for i in chat.members})
+        self._member_check(user, {i.user_id for i in chat.members})
 
         messages = await self.repo.get_messages(chat_id)
 
@@ -139,11 +137,12 @@ class ChatService:
         user = await self.user_service.get(user_id)
         chat = await self.repo.get(chat_id)
 
-        _member_check(user, {i.user.id for i in chat.members})
+        self._member_check(user, {i.user.id for i in chat.members})
 
         return await self.repo.keys(chat=chat, user=user, version=version)
 
     async def add_members(self, chat_id: int, data: AddMembersSchema):
+        """Method without permission check"""
 
         chat = await self.repo.get(chat_id)
 
@@ -179,10 +178,10 @@ class ChatService:
             current_key_version=data.new_version,
         )
 
-    async def delete_members(self, user_id: int, chat_id: int, data: DeleteMembersSchema):
-        user = await self.user_service.get(user_id)
+    async def delete_members(self, chat_id: int, data: DeleteMembersSchema):
+        """Method without permission check"""
+
         chat = await self.repo.get(chat_id)
-        _owner_check(user, chat.owner_id)
 
         key_version = await self.repo.get_current_key_version([chat.id])
         members_exist = {i.user_id for i in chat.members}
@@ -214,50 +213,13 @@ class ChatService:
             current_key_version=data.new_version,
         )
 
-    async def invite_user(self, chat_id: int, data: InviteCreateSchema, owner_id: int):
-        user = await self.user_service.get(owner_id)
-        chat = await self.repo.get(chat_id)
-        _owner_check(user, chat.owner_id)
-
-        requested_ids = set(data.user_ids)
-        member_ids = {member.user_id for member in chat.members}
-
-        user_invite_ids = requested_ids - member_ids
-
-        if len(user_invite_ids) == 0:
-            return
-
-        users = await self.user_service.get_many(list(user_invite_ids))
-
-        await self.repo.invite_user(chat=chat, users=users)
-
-    async def get_invites(self, user_id: int) -> list[InviteMineSchema]:
-        user = await self.user_service.get(user_id)
-
-        invites = await self.repo.get_invites_by_user(user)
-
-        return [
-            InviteMineSchema(id=i.id, chat_name=i.chat.name, chat_id=i.chat.id) for i in invites
-        ]
-
-    async def decline_invite(self, user_id: int, invite_id: int):
-        user = await self.user_service.get(user_id)
-        invite = await self.repo.get_invite(invite_id)
-
-        if invite.user_id != user.id:
+    def _owner_check(self, user: UserModel, owner_id: int) -> None:
+        if user.id != owner_id:
             raise ChatPermissionError
 
-        await self.repo.delete_invite(invite)
-
-    async def accept_invite(
-        self, invite_id: int, user_id: int, data: AddMembersSchema
-    ) -> ChatSchema:
-        invite = await self.repo.get_invite(invite_id)
-        if invite.user_id != user_id:
+    def _member_check(self, user: UserModel, member_ids: Iterable[int]) -> None:
+        if user.id not in member_ids:
             raise ChatPermissionError
-        result = await self.add_members(invite.chat_id, data)
-        await self.repo.delete_invite(invite)
-        return result
 
 
 def get_chat_service(
@@ -265,13 +227,3 @@ def get_chat_service(
     user_service: UserService = Depends(get_user_service),
 ) -> ChatService:
     return ChatService(repo=repo, user_service=user_service)
-
-
-def _owner_check(user: UserModel, owner_id: int) -> None:
-    if user.id != owner_id:
-        raise ChatPermissionError
-
-
-def _member_check(user: UserModel, member_ids: Iterable[int]) -> None:
-    if user.id not in member_ids:
-        raise ChatPermissionError
