@@ -366,6 +366,7 @@ function getCookie(name) {
 }
 
 let refreshRequest;
+const pendingGetRequests = new Map();
 
 async function refreshSession() {
   if (!refreshRequest) {
@@ -385,6 +386,23 @@ async function refreshSession() {
 
 async function apiFetch(url, options = {}) {
   const requestOptions = { ...options, credentials: "include" };
+  const method = (requestOptions.method || "GET").toUpperCase();
+  if (method !== "GET") return performApiFetch(url, requestOptions);
+
+  const requestKey = `${method}:${url}`;
+  const pendingRequest = pendingGetRequests.get(requestKey);
+  if (pendingRequest) return pendingRequest.then((response) => response.clone());
+
+  const request = performApiFetch(url, requestOptions).finally(() => {
+    if (pendingGetRequests.get(requestKey) === request) {
+      pendingGetRequests.delete(requestKey);
+    }
+  });
+  pendingGetRequests.set(requestKey, request);
+  return request.then((response) => response.clone());
+}
+
+async function performApiFetch(url, requestOptions) {
   const response = await fetch(url, requestOptions);
   if (response.status !== 401 || !(await refreshSession())) return response;
 
@@ -1238,8 +1256,11 @@ function App() {
     try {
       const expectedVersion = selectedChat?.current_key_version;
       if (expectedVersion == null) throw new Error(t("Не удалось определить версию AES-ключа чата"));
-      await refreshChatKeys(selectedChatId, expectedVersion);
-      const aesKey = getChatKey(selectedChatId, expectedVersion);
+      let aesKey = getChatKey(selectedChatId, expectedVersion);
+      if (!aesKey) {
+        await refreshChatKeys(selectedChatId, expectedVersion);
+        aesKey = getChatKey(selectedChatId, expectedVersion);
+      }
       if (!aesKey) throw new Error(t("AES-ключ версии {version} недоступен", { version: expectedVersion }));
 
       const clientMsgId = crypto.randomUUID();
