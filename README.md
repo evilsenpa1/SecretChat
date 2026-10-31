@@ -19,7 +19,7 @@ SecretChat is designed as a learning project for private communication. The serv
 
 ## Tech stack
 
-**Backend:** Python 3.13+, FastAPI, WebSockets, SQLAlchemy, Alembic, PostgreSQL, Pydantic, `bcrypt` for password hashing.
+**Backend:** Python 3.13+, FastAPI, WebSockets, SQLAlchemy, Alembic, PostgreSQL, Pydantic, Redis, `bcrypt` for password hashing.
 
 **Frontend:** React, Vite, JavaScript, browser Web Crypto API (AES-GCM and RSA-OAEP).
 
@@ -140,10 +140,6 @@ ws://127.0.0.1:8000/ws
 ```
 
 The authentication cookies must be sent with the WebSocket connection.
-
-### Multi-process deployment status
-
-WebSocket connections are currently stored in process-local memory, so messages are broadcast only to clients connected to the same backend process. Running multiple backend workers or replicas requires Redis Pub/Sub to synchronize WebSocket events across processes; this integration is not implemented yet. The Redis service in `docker-compose.yml` is commented out, and the current setup assumes a single backend process.
 
 ### Client message
 
